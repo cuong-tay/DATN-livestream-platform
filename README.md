@@ -61,20 +61,20 @@ npm run build
 
 **Lưu ý khi chạy cùng Backend:** File cấu hình `vite.config.ts` đã được tích hợp sẵn hệ thống Proxy tự động (`dns.setDefaultResultOrder('ipv4first')` và `localhost:8080`) để giải quyết vấn đề CORS, đụng độ IPv6 kết nối tới máy chủ Spring Boot. Bạn chỉ cần chạy Backend cổng 8080 là Frontend sẽ tự hiểu.
 
-Frontend hiện gọi backend trực tiếp, không dùng Vite proxy. Mặc định app sẽ gọi REST tới `http://localhost:8080/api/v1` và WebSocket tới `ws://localhost:8080/api/v1/ws`.
+Frontend hiện gọi backend trực tiếp, không dùng Vite proxy. Mặc định app sẽ gọi REST tới `https://api.cuongtay.me/api/v1` và WebSocket tới `wss://api.cuongtay.me/api/v1/ws`.
 
 Nếu backend chạy cổng hoặc domain khác, cấu hình biến môi trường theo [.env.example](c:/Users/ASUS/DATN-livestream-platform/.env.example):
 
 ```bash
-VITE_API_BASE_URL=http://localhost:8080/api/v1
+VITE_API_BASE_URL=https://api.cuongtay.me/api/v1
 # hoặc origin thuần, app sẽ tự thêm /api/v1
-# VITE_API_BASE_URL=http://localhost:8080
+# VITE_API_BASE_URL=https://api.cuongtay.me
 
 # không bắt buộc nếu WS cùng host với REST
-VITE_WS_URL=ws://localhost:8080/api/v1/ws
+VITE_WS_URL=wss://api.cuongtay.me/api/v1/ws
 ```
 
-Vì frontend và backend giờ là cross-origin trong local dev, backend cần bật CORS cho `http://localhost:5173`.
+Vì frontend và backend có thể là cross-origin (đặc biệt khi local dev), backend cần bật CORS cho `http://localhost:5173`.
 
 ## 🌐 Deploy Lên Vercel
 
