@@ -14,6 +14,7 @@ import {
 import { donationService } from "@/shared/api/donation.service";
 import { toast } from "sonner";
 import { useAuth } from "@/app/providers/AuthContext";
+import { useI18n } from "@/shared/i18n";
 
 interface DonateModalProps {
   isOpen: boolean;
@@ -26,6 +27,7 @@ const PRESET_AMOUNTS = [10000, 20000, 50000, 100000];
 
 export function DonateModal({ isOpen, onOpenChange, streamerId, streamerUsername }: DonateModalProps) {
   const { isAuthenticated } = useAuth();
+  const { t } = useI18n();
   const [amount, setAmount] = useState<number>(10000);
   const [customAmount, setCustomAmount] = useState<string>("");
   const [message, setMessage] = useState<string>("");
@@ -34,13 +36,13 @@ export function DonateModal({ isOpen, onOpenChange, streamerId, streamerUsername
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isAuthenticated) {
-      toast.error("Vui lòng đăng nhập để gửi tiền ủng hộ.");
+      toast.error(t("donate.loginRequired"));
       return;
     }
 
     const finalAmount = customAmount ? parseInt(customAmount.replace(/[^0-9]/g, ""), 10) : amount;
     if (!finalAmount || finalAmount < 10000) {
-      toast.error("Số tiền ủng hộ tối thiểu là 10,000đ.");
+      toast.error(t("donate.minAmount"));
       return;
     }
 
@@ -51,12 +53,12 @@ export function DonateModal({ isOpen, onOpenChange, streamerId, streamerUsername
         amount: finalAmount,
         message,
       });
-      toast.success("Cảm ơn bạn đã ủng hộ Streamer!");
+      toast.success(t("donate.success"));
       onOpenChange(false);
       setMessage("");
       setCustomAmount("");
     } catch {
-      toast.error("Giao dịch không thành công. Hãy thử lại!");
+      toast.error(t("donate.failed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -74,9 +76,9 @@ export function DonateModal({ isOpen, onOpenChange, streamerId, streamerUsername
           <div className="w-16 h-16 bg-pink-500/10 rounded-full flex items-center justify-center mb-4">
             <HeartHandshake className="w-8 h-8 text-pink-500" />
           </div>
-          <DialogTitle className="text-xl font-bold">Ủng hộ {streamerUsername}</DialogTitle>
+          <DialogTitle className="text-xl font-bold">{t("donate.title", { username: streamerUsername })}</DialogTitle>
           <DialogDescription className="text-center mt-2">
-            Tiếp thêm động lực cho streamer bằng một khoản quyên góp nhỏ.
+            {t("donate.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -101,17 +103,17 @@ export function DonateModal({ isOpen, onOpenChange, streamerId, streamerUsername
               <Separator className="w-full" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">Hoặc nhập số tiền khác</span>
+              <span className="bg-background px-2 text-muted-foreground">{t("donate.customSeparator")}</span>
             </div>
           </div>
 
           {/* Custom Amount */}
           <div className="grid gap-2">
-            <Label htmlFor="customAmount">Số tiền tùy chọn (VNĐ)</Label>
+            <Label htmlFor="customAmount">{t("donate.customAmount")}</Label>
             <Input
               id="customAmount"
               type="text"
-              placeholder="Ví dụ: 150000"
+              placeholder={t("donate.customPlaceholder")}
               value={customAmount}
               onChange={(e) => {
                 setCustomAmount(e.target.value);
@@ -123,11 +125,11 @@ export function DonateModal({ isOpen, onOpenChange, streamerId, streamerUsername
 
           {/* Message */}
           <div className="grid gap-2">
-            <Label htmlFor="message">Lời nhắn (Tùy chọn)</Label>
+            <Label htmlFor="message">{t("donate.message")}</Label>
             <Input
               id="message"
               type="text"
-              placeholder="Gửi lời động viên đến streamer..."
+              placeholder={t("donate.messagePlaceholder")}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               className="h-10"
@@ -142,13 +144,13 @@ export function DonateModal({ isOpen, onOpenChange, streamerId, streamerUsername
               disabled={isSubmitting}
             >
               {isSubmitting ? (
-                <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> Đang xử lý giao dịch...</>
+                <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> {t("donate.processing")}</>
               ) : (
-                "Gửi Ủng Hộ Ngay"
+                t("donate.submit")
               )}
             </Button>
             <p className="text-[10px] text-center text-muted-foreground mt-3">
-              Giao dịch này là không thể hoàn tác. Vui lòng kiểm tra kỹ số tiền.
+              {t("donate.warning")}
             </p>
           </div>
         </form>

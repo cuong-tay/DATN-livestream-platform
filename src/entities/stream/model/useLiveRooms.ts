@@ -13,15 +13,24 @@ interface UseLiveRoomsReturn {
  * Fetches live rooms from the API.
  * Supports optional category filtering and "load more" pagination.
  */
-export function useLiveRooms(categoryId?: number, pageSize = 12): UseLiveRoomsReturn {
+export function useLiveRooms(categoryId?: number, pageSize = 12, enabled = true): UseLiveRoomsReturn {
   const [rooms, setRooms] = useState<RoomLiveItem[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
 
   // Reset when categoryId changes
   useEffect(() => {
+    if (!enabled) {
+      setRooms([]);
+      setPage(0);
+      setHasMore(false);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
     setRooms([]);
     setPage(0);
     setHasMore(true);
@@ -30,6 +39,10 @@ export function useLiveRooms(categoryId?: number, pageSize = 12): UseLiveRoomsRe
 
   // Fetch rooms for the current page
   useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+
     let cancelled = false;
     setIsLoading(true);
 
@@ -52,13 +65,17 @@ export function useLiveRooms(categoryId?: number, pageSize = 12): UseLiveRoomsRe
     return () => {
       cancelled = true;
     };
-  }, [categoryId, page, pageSize]);
+  }, [categoryId, page, pageSize, enabled]);
 
   const loadMore = useCallback(() => {
+    if (!enabled) {
+      return;
+    }
+
     if (!isLoading && hasMore) {
       setPage((p) => p + 1);
     }
-  }, [isLoading, hasMore]);
+  }, [enabled, hasMore, isLoading]);
 
   return { rooms, isLoading, error, hasMore, loadMore };
 }

@@ -27,3 +27,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Xóa dấu vết tài liệu API Backend nhạy cảm
+API-DOCUMENTATION.md

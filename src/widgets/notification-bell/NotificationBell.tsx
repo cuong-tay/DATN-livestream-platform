@@ -2,18 +2,19 @@ import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 import { notificationService, type NotificationItem } from "@/shared/api/notification.service";
 import { useAuth } from "@/app/providers/AuthContext";
+import { hasHttpStatus } from "@/shared/api/httpClient";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuItem,
   Button
 } from "@/shared/ui";
+import { useI18n } from "@/shared/i18n";
 
 export function NotificationBell() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
+  const { language, t } = useI18n();
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -26,7 +27,11 @@ export function NotificationBell() {
       try {
         const res = await notificationService.getUnreadCount();
         setUnreadCount(res.data.unreadCount);
-      } catch {
+      } catch (error) {
+        if (hasHttpStatus(error, 403) || hasHttpStatus(error, 401)) {
+          logout();
+          return;
+        }
         // fail silently
       }
     };
@@ -42,7 +47,11 @@ export function NotificationBell() {
     try {
       const res = await notificationService.getNotifications({ page: 0, size: 10 });
       setNotifications(res.data.content);
-    } catch {
+    } catch (error) {
+      if (hasHttpStatus(error, 403) || hasHttpStatus(error, 401)) {
+        logout();
+        return;
+      }
       // fail silently
     } finally {
       setIsLoading(false);
@@ -63,7 +72,10 @@ export function NotificationBell() {
         prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
-    } catch {
+    } catch (error) {
+      if (hasHttpStatus(error, 403) || hasHttpStatus(error, 401)) {
+        logout();
+      }
       // 
     }
   };
@@ -73,7 +85,10 @@ export function NotificationBell() {
       await notificationService.markAllAsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setUnreadCount(0);
-    } catch {
+    } catch (error) {
+      if (hasHttpStatus(error, 403) || hasHttpStatus(error, 401)) {
+        logout();
+      }
       // 
     }
   };
@@ -100,19 +115,19 @@ export function NotificationBell() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[380px] p-0 border border-border shadow-2xl bg-card text-foreground">
         <div className="flex items-center justify-between p-4 border-b border-border bg-muted/20">
-          <DropdownMenuLabel className="p-0 text-base font-bold">Thông báo</DropdownMenuLabel>
+          <DropdownMenuLabel className="p-0 text-base font-bold">{t("notifications.title")}</DropdownMenuLabel>
           {unreadCount > 0 && (
             <Button variant="ghost" size="sm" onClick={handleMarkAllAsRead} className="h-8 text-xs font-medium text-primary hover:text-primary/80">
-              Đánh dấu tất cả đã đọc
+              {t("notifications.markAllRead")}
             </Button>
           )}
         </div>
         
         <div className="max-h-[400px] overflow-y-auto">
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground text-sm">Đang tải...</div>
+            <div className="p-8 text-center text-muted-foreground text-sm">{t("notifications.loading")}</div>
           ) : notifications.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground text-sm">Chưa có thông báo nào.</div>
+            <div className="p-8 text-center text-muted-foreground text-sm">{t("notifications.empty")}</div>
           ) : (
             <div className="divide-y divide-border">
               {notifications.map((n) => (
@@ -129,7 +144,7 @@ export function NotificationBell() {
                       {n.message}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(n.createdAt).toLocaleString("vi-VN", { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
+                      {new Date(n.createdAt).toLocaleString(language === "vi" ? "vi-VN" : language, { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
                     </p>
                   </div>
                 </div>

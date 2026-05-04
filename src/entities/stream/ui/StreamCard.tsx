@@ -12,6 +12,19 @@ interface StreamCardProps {
 
 export function StreamCard({ room }: StreamCardProps) {
   const isLive = room.status === "LIVE" || room.status === "RECONNECTING";
+  const streamerName =
+    typeof room.streamerUsername === "string" && room.streamerUsername.trim().length > 0
+      ? room.streamerUsername
+      : "Streamer";
+  const streamerInitial = streamerName.charAt(0).toUpperCase();
+  const streamTitle =
+    typeof room.title === "string" && room.title.trim().length > 0
+      ? room.title
+      : "Untitled stream";
+  const categoryName =
+    typeof room.categoryName === "string" && room.categoryName.trim().length > 0
+      ? room.categoryName
+      : "Unknown category";
 
   return (
     <Link to={`/stream/${room.roomId}`} className="group block">
@@ -20,13 +33,13 @@ export function StreamCard({ room }: StreamCardProps) {
         {room.streamerAvatarUrl ? (
           <img
             src={room.streamerAvatarUrl}
-            alt={room.title}
+            alt={streamTitle}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-purple-700 via-purple-900 to-slate-900 flex items-center justify-center group-hover:scale-105 transition-transform duration-300">
             <span className="text-4xl font-bold text-white/30">
-              {room.streamerUsername[0]?.toUpperCase()}
+              {streamerInitial}
             </span>
           </div>
         )}
@@ -44,15 +57,15 @@ export function StreamCard({ room }: StreamCardProps) {
           {room.streamerAvatarUrl ? (
             <img src={room.streamerAvatarUrl} className="w-full h-full rounded-full object-cover" alt="" />
           ) : (
-            <span className="text-sm">{room.streamerUsername[0]}</span>
+            <span className="text-sm">{streamerInitial}</span>
           )}
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-sm line-clamp-2 mb-0.5 group-hover:text-purple-400 transition">
-            {room.title}
+            {streamTitle}
           </h3>
-          <p className="text-sm text-gray-400">{room.streamerUsername}</p>
-          <p className="text-xs text-gray-500">{room.categoryName}</p>
+          <p className="text-sm text-gray-400">{streamerName}</p>
+          <p className="text-xs text-gray-500">{categoryName}</p>
         </div>
       </div>
     </Link>

@@ -19,7 +19,7 @@ export interface RoomLiveItem {
   streamerId: number;
   streamerAvatarUrl: string | null;
   categoryName: string;
-  hlsUrl: string;
+  hlsUrl: string | null;
   status: RoomStatus;
   viewers?: number;
 }
@@ -42,22 +42,51 @@ export interface CreateRoomResponse {
   status: RoomStatus;
 }
 
+export type VodStatus = "PENDING" | "UPLOADING" | "DONE" | "FAILED";
+
 export interface StreamSession {
   id: number;
   roomId: number;
+  streamerUsername?: string;
+  streamerAvatarUrl?: string | null;
   title: string;
+  maxCcv: number;
+  likeCount?: number;
+  dislikeCount?: number;
   startedAt: string;
   endedAt: string | null;
   durationMinutes: number;
-  maxCcv: number;
   vodUrl: string | null;
+  vodStatus: VodStatus | null;
+  vodError?: string | null;
+}
+
+export type PublicVodSort = "latest" | "popular" | "views";
+
+export interface PublicVodItem {
+  sessionId: number;
+  roomId: number;
+  streamerId: number;
+  streamerUsername: string;
+  streamerAvatarUrl: string | null;
+  title: string;
+  categoryId: number;
+  categoryName: string;
+  vodUrl: string | null;
+  durationMinutes: number;
+  viewCount: number;
+  likeCount: number;
+  dislikeCount: number;
+  startedAt: string;
+  endedAt: string | null;
 }
 
 export interface ChatMessageResponse {
   roomId: number;
   senderName: string;
   content: string;
-  timestamp: string;
+  timestamp?: string;
+  createdAt?: string;
 }
 
 // ── Service ──────────────────────────────────────────────────────────────────
@@ -69,7 +98,7 @@ export const roomService = {
 
   /** GET /rooms/{roomId} — chi tiết một phòng (public) */
   getRoomById: (roomId: number) =>
-    httpClient.get<RoomLiveItem>(`/rooms/${roomId}`),
+    httpClient.get<RoomDetail>(`/rooms/${roomId}`),
 
   /** POST /rooms — tạo phòng mới (JWT) */
   createRoom: (data: CreateRoomRequest) =>
@@ -91,11 +120,40 @@ export const roomService = {
   getRoomSessions: (roomId: number, params?: { page?: number; size?: number }) =>
     httpClient.get<PaginatedResponse<StreamSession>>(`/rooms/${roomId}/sessions`, { params }),
 
+  /** GET /vods — danh sách VOD public (public) */
+  getPublicVods: (params?: {
+    page?: number;
+    size?: number;
+    categoryId?: number;
+    sort?: PublicVodSort;
+    streamerId?: number;
+  }) =>
+    httpClient.get<PaginatedResponse<PublicVodItem>>("/vods", {
+      params,
+      skipAuth: true,
+    }),
+
   /** GET /rooms/me/sessions — lịch sử session của tôi (JWT) */
   getMySessions: (params?: { page?: number; size?: number }) =>
     httpClient.get<PaginatedResponse<StreamSession>>("/rooms/me/sessions", { params }),
 
+  /** GET /rooms/me/sessions/vod-pending — session chưa DONE (JWT) */
+  getMyPendingVodSessions: (params?: { page?: number; size?: number }) =>
+    httpClient.get<PaginatedResponse<StreamSession>>("/rooms/me/sessions/vod-pending", { params }),
+
+  /** GET /sessions/{sessionId} — chi tiết một session (public) */
+  getSessionById: (sessionId: number) =>
+    httpClient.get<StreamSession>(`/sessions/${sessionId}`),
+
+  /** GET /sessions/{sessionId}/chats — lấy toàn bộ chat của session (public) */
+  getSessionChats: (sessionId: number) =>
+    httpClient.get<ChatMessageResponse[]>(`/sessions/${sessionId}/chats`),
+
   /** GET /rooms/{roomId}/chats — lịch sử chat 50 tin gần nhất (public) */
   getChatHistory: (roomId: number) =>
     httpClient.get<ChatMessageResponse[]>(`/rooms/${roomId}/chats`),
+
+  /** POST /rooms/me/sessions/{sessionId}/retry-vod — thử upload lại VOD (JWT) */
+  retryVodUpload: (sessionId: number) =>
+    httpClient.post(`/rooms/me/sessions/${sessionId}/retry-vod`),
 };

@@ -14,6 +14,7 @@ import {
   type RegisterRequest,
   type AuthResponse,
   type ApiError,
+  type UserResponse,
 } from "@/shared/api/auth.service";
 import type { AxiosError } from "axios";
 
@@ -29,6 +30,7 @@ interface AuthContextValue extends AuthState {
   login: (data: LoginRequest) => Promise<void>;
   register: (data: RegisterRequest) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
+  syncUserProfile: (data: UserResponse) => void;
   logout: () => void;
 }
 
@@ -40,6 +42,20 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 function extractErrorMessage(error: unknown): string {
   const axiosErr = error as AxiosError<ApiError>;
+  const fieldErrors = axiosErr.response?.data?.errors;
+
+  if (fieldErrors?.password) {
+    const passwordError = fieldErrors.password;
+    return Array.isArray(passwordError) ? passwordError[0] : passwordError;
+  }
+
+  if (fieldErrors) {
+    const firstFieldError = Object.values(fieldErrors)[0];
+    if (firstFieldError) {
+      return Array.isArray(firstFieldError) ? firstFieldError[0] : firstFieldError;
+    }
+  }
+
   if (axiosErr.response?.data?.message) {
     return axiosErr.response.data.message;
   }
@@ -57,6 +73,7 @@ function mapAuthResponseToUser(res: AuthResponse): UserProfile {
     id: String(res.user.userId),
     username: res.user.username,
     email: res.user.email,
+    avatar: res.user.avatarUrl ?? undefined,
     role: res.user.role,
   };
 }
@@ -101,7 +118,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("accessToken", data.accessToken);
     localStorage.setItem("refreshToken", data.refreshToken);
     const profile = mapAuthResponseToUser(data);
-    localStorage.setItem("authUser", JSON.stringify(profile));
+    try {
+      localStorage.setItem("authUser", JSON.stringify(profile));
+    } catch {
+      // Ignore storage quota errors to avoid blocking login state.
+    }
     setUser(profile);
   }, []);
 
@@ -144,6 +165,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persistSession],
   );
 
+  // ── Sync profile after account settings update ────────────────────────
+  const syncUserProfile = useCallback((data: UserResponse) => {
+    setUser((prev) => {
+      const nextProfile: UserProfile = {
+        userId: data.userId,
+        id: String(data.userId),
+        username: data.username,
+        email: data.email,
+        role: data.role,
+        avatar: data.avatarUrl ?? undefined,
+        balance: prev?.balance,
+      };
+
+      try {
+        localStorage.setItem("authUser", JSON.stringify(nextProfile));
+      } catch {
+        // Ignore storage quota errors (e.g., oversized avatar payloads).
+      }
+      return nextProfile;
+    });
+  }, []);
+
   // ── Logout ─────────────────────────────────────────────────────────────
   const logout = useCallback(() => {
     setUser(null);
@@ -161,9 +204,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       register,
       loginWithGoogle,
+      syncUserProfile,
       logout,
     }),
-    [user, isLoading, login, register, loginWithGoogle, logout],
+    [user, isLoading, login, register, loginWithGoogle, syncUserProfile, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

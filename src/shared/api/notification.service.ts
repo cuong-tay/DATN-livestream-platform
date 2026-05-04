@@ -1,9 +1,16 @@
 import { httpClient } from "./httpClient";
 import { PaginatedResponse } from "./room.service";
 
+export type NotificationType =
+  | "NEW_FOLLOWER"
+  | "DONATION_RECEIVED"
+  | "STREAM_LIVE"
+  | "STREAM_TERMINATED"
+  | "REPORT_RESOLVED";
+
 export interface NotificationItem {
   id: number;
-  type: "NEW_FOLLOWER" | "DONATION_RECEIVED" | "SYSTEM_ALERT" | "STREAM_BANNED";
+  type: NotificationType;
   message: string;
   isRead: boolean;
   createdAt: string;

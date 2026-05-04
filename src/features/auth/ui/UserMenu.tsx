@@ -2,6 +2,7 @@ import {
   LogOut,
   Moon,
   Settings,
+  ShieldAlert,
   User,
   Video,
   Wallet,
@@ -28,7 +29,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import type { UserProfile } from "@/entities/user";
 import { useAuth } from "@/app/providers/AuthContext";
-import { useI18n, type LanguageCode, translations } from "@/shared/i18n";
+import { languageLabels, useI18n, useI18nFormatters, type LanguageCode } from "@/shared/i18n";
 
 
 interface UserMenuProps {
@@ -38,6 +39,7 @@ interface UserMenuProps {
 export function UserMenu({ user }: UserMenuProps) {
   const { logout } = useAuth();
   const { t, language, setLanguage } = useI18n();
+  const { formatNumber } = useI18nFormatters();
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     return document.documentElement.classList.contains("dark") || true;
   });
@@ -101,6 +103,14 @@ export function UserMenu({ user }: UserMenuProps) {
               <span>{t("menu.dashboard")}</span>
             </Link>
           </DropdownMenuItem>
+          {user.role === "ADMIN" && (
+            <DropdownMenuItem asChild className="cursor-pointer focus:bg-accent focus:text-accent-foreground">
+              <Link to="/admin" className="flex w-full items-center">
+                <ShieldAlert className="w-4 h-4 mr-2 text-muted-foreground" />
+                <span>{t("menu.admin")}</span>
+              </Link>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem className="flex justify-between cursor-pointer focus:bg-accent focus:text-accent-foreground">
 
             <div className="flex items-center">
@@ -108,7 +118,7 @@ export function UserMenu({ user }: UserMenuProps) {
               <span>{t("menu.wallet")}</span>
             </div>
             <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-              {user.balance?.toLocaleString() || 0} Bits
+              {formatNumber(user.balance ?? 0)} {t("common.bits")}
             </span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
@@ -130,22 +140,24 @@ export function UserMenu({ user }: UserMenuProps) {
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="cursor-pointer focus:bg-accent focus:text-accent-foreground">
               <Languages className="w-4 h-4 mr-2 text-muted-foreground" />
-              <span>{t("menu.lang")}: {t(`menu.lang.${language}` as keyof typeof translations["en"])}</span>
+              <span>{t("menu.lang")}: {languageLabels[language]}</span>
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
               <DropdownMenuSubContent className="bg-background border-border text-foreground z-50">
                 <DropdownMenuRadioGroup value={language} onValueChange={(val) => setLanguage(val as LanguageCode)}>
-                  <DropdownMenuRadioItem value="en">English</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="vi">Tiếng Việt</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="es">Español</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="vi">{languageLabels.vi}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="en">{languageLabels.en}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="es">{languageLabels.es}</DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>
 
-          <DropdownMenuItem className="cursor-pointer focus:bg-accent focus:text-accent-foreground">
-            <Settings className="w-4 h-4 mr-2 text-muted-foreground" />
-            <span>{t("menu.settings")}</span>
+          <DropdownMenuItem asChild className="cursor-pointer focus:bg-accent focus:text-accent-foreground">
+            <Link to="/settings" className="flex w-full items-center">
+              <Settings className="w-4 h-4 mr-2 text-muted-foreground" />
+              <span>{t("menu.settings")}</span>
+            </Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>
 

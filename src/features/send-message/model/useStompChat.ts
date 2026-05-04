@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Client } from "@stomp/stompjs";
-// @ts-ignore — types will be installed via npm
-import SockJS from "sockjs-client";
 
 import type { ChatMessage } from "@/entities/message/model/types";
 import { roomService, type ChatMessageResponse } from "@/shared/api/room.service";
 import { CHAT_COLORS, CHAT_MAX_MESSAGES, BRAND_COLOR } from "@/shared/lib/constants";
 import { useAuth } from "@/app/providers/AuthContext";
+import {
+  getStompConnectionState,
+  onStompConnectionChange,
+  publishMessage,
+  subscribeToTopic,
+} from "@/shared/lib/stompClient";
 
 interface UseStompChatReturn {
   messages: ChatMessage[];
@@ -24,11 +27,13 @@ function randomColor(): string {
 
 /** Map a REST history message to the UI ChatMessage shape */
 function mapHistoryMessage(msg: ChatMessageResponse, idx: number): ChatMessage {
+  const rawTimestamp = msg.timestamp ?? msg.createdAt;
+  const parsedTimestamp = rawTimestamp ? new Date(rawTimestamp) : new Date();
   return {
-    id: `hist-${idx}-${msg.timestamp}`,
+    id: `hist-${idx}-${rawTimestamp ?? "unknown"}`,
     username: msg.senderName,
     message: msg.content,
-    timestamp: new Date(msg.timestamp),
+    timestamp: parsedTimestamp,
     color: randomColor(),
   };
 }
@@ -43,9 +48,10 @@ export function useStompChat(roomId: number | null): UseStompChatReturn {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(
+    getStompConnectionState() === "connected",
+  );
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const clientRef = useRef<Client | null>(null);
   const seqRef = useRef(0);
 
   const nextId = () => {
@@ -68,52 +74,34 @@ export function useStompChat(roomId: number | null): UseStompChatReturn {
       });
   }, [roomId]);
 
-  // ── STOMP WebSocket connection ─────────────────────────────────────────
+  // ── Shared STOMP WebSocket connection ──────────────────────────────────
+  useEffect(() => {
+    const unsubscribe = onStompConnectionChange((state) => {
+      setIsConnected(state === "connected");
+    });
+
+    return unsubscribe;
+  }, []);
+
   useEffect(() => {
     if (!roomId) return;
 
-    const wsUrl =
-      (import.meta.env.VITE_WS_URL || "/api/v1/ws");
-
-    const client = new Client({
-      webSocketFactory: () => new SockJS(wsUrl),
-      reconnectDelay: 5000,
-      heartbeatIncoming: 10000,
-      heartbeatOutgoing: 10000,
-      connectHeaders: {
-        Authorization: `Bearer ${localStorage.getItem("accessToken") || ""}`,
-      },
-      onConnect: () => {
-        setIsConnected(true);
-
-        client.subscribe(`/topic/room/${roomId}`, (frame) => {
-          try {
-            const payload = JSON.parse(frame.body) as ChatMessageResponse;
-            const incoming: ChatMessage = {
-              id: nextId(),
-              username: payload.senderName,
-              message: payload.content,
-              timestamp: new Date(payload.timestamp),
-              color: randomColor(),
-            };
-            setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), incoming]);
-          } catch {
-            // Malformed message — skip
-          }
-        });
-      },
-      onDisconnect: () => setIsConnected(false),
-      onStompError: () => setIsConnected(false),
+    return subscribeToTopic(`/topic/room/${roomId}`, (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as ChatMessageResponse;
+        const rawTimestamp = payload.timestamp ?? payload.createdAt;
+        const incoming: ChatMessage = {
+          id: nextId(),
+          username: payload.senderName,
+          message: payload.content,
+          timestamp: rawTimestamp ? new Date(rawTimestamp) : new Date(),
+          color: randomColor(),
+        };
+        setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), incoming]);
+      } catch {
+        // Malformed message — skip
+      }
     });
-
-    client.activate();
-    clientRef.current = client;
-
-    return () => {
-      client.deactivate();
-      clientRef.current = null;
-      setIsConnected(false);
-    };
   }, [roomId]);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────
@@ -128,18 +116,22 @@ export function useStompChat(roomId: number | null): UseStompChatReturn {
   const sendMessage = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      if (!newMessage.trim() || !roomId || !clientRef.current?.connected) return;
+      if (!newMessage.trim() || !roomId || !isConnected) return;
 
       const senderName = user?.username || "Anonymous";
 
-      clientRef.current.publish({
-        destination: "/app/chat.sendMessage",
-        body: JSON.stringify({
+      const didPublish = publishMessage(
+        "/app/chat.sendMessage",
+        JSON.stringify({
           roomId,
           senderName,
           content: newMessage.trim(),
         }),
-      });
+      );
+
+      if (!didPublish) {
+        return;
+      }
 
       // Optimistic UI — show the message immediately
       const optimistic: ChatMessage = {
@@ -152,7 +144,7 @@ export function useStompChat(roomId: number | null): UseStompChatReturn {
       setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), optimistic]);
       setNewMessage("");
     },
-    [newMessage, roomId, user],
+    [newMessage, roomId, user, isConnected],
   );
 
   return {

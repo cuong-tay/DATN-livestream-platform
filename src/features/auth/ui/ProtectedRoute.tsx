@@ -2,8 +2,12 @@ import { useAuth } from "@/app/providers/AuthContext";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 
-export function ProtectedRoute() {
-  const { isAuthenticated, isLoading } = useAuth();
+interface ProtectedRouteProps {
+  requiredRole?: "USER" | "ADMIN";
+}
+
+export function ProtectedRoute({ requiredRole }: ProtectedRouteProps) {
+  const { user, isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -18,6 +22,10 @@ export function ProtectedRoute() {
     // Redirect to home if not logged in, but we could also show the AuthModal.
     // However, a redirect to '/' is safer for protected pages.
     return <Navigate to="/" state={{ from: location }} replace />;
+  }
+
+  if (requiredRole && user?.role !== requiredRole) {
+    return <Navigate to="/" replace />;
   }
 
   return <Outlet />;

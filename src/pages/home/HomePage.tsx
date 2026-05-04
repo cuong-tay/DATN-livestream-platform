@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import { TrendingUp, Loader2, AlertCircle } from "lucide-react";
 import { StreamCard } from "@/entities/stream";
 import { CategoryCard } from "@/entities/category";

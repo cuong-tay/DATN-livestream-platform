@@ -11,9 +11,11 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { useAuth } from "@/app/providers/AuthContext";
 import { Shield, Ban } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/shared/i18n";
 
 export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
   const { user } = useAuth();
+  const { t } = useI18n();
   const isStreamer = Boolean(user && streamerId && user.userId === streamerId);
 
   const {
@@ -26,8 +28,8 @@ export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
   } = useStompChat(roomId);
 
   const handleBanUser = (username: string) => {
-    // Gọi API Ban User (sẽ cần API backend hỗ trợ ban bằng username hoặc nhúng userId vào STOMP msg)
-    toast.success(`Đã chặn người dùng ${username} khỏi phòng Chat!`);
+    // Backend still needs a real ban endpoint or userId in STOMP payload.
+    toast.success(t("chat.banSuccess", { username }));
   };
 
   return (
@@ -36,14 +38,14 @@ export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
       <div className="border-b border-[#2d2d31] p-3">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold flex items-center gap-2">
-            Stream Chat
+            {t("chat.title")}
             {isConnected ? (
               <Wifi className="w-3.5 h-3.5 text-green-400" />
             ) : (
               <WifiOff className="w-3.5 h-3.5 text-yellow-400" />
             )}
             {isStreamer && (
-              <span title="Streamer Mode (Mod)">
+              <span title={t("chat.modMode")}>
                 <Shield className="w-4 h-4 text-purple-500 ml-1" />
               </span>
             )}
@@ -61,8 +63,8 @@ export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
       >
         {messages.length === 0 && (
           <div className="text-center text-gray-500 text-sm py-8">
-            <p>Chưa có tin nhắn nào.</p>
-            <p className="text-xs mt-1">Hãy là người đầu tiên chat!</p>
+            <p>{t("chat.empty")}</p>
+            <p className="text-xs mt-1">{t("chat.emptyHint")}</p>
           </div>
         )}
         {messages.map((msg, index) => (
@@ -89,7 +91,7 @@ export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
                      onClick={() => handleBanUser(msg.username)}
                      className="text-red-400 focus:text-red-300 focus:bg-red-500/10 cursor-pointer text-xs"
                   >
-                     <Ban className="w-3 h-3 mr-2" /> Cấm chat (Ban)
+                     <Ban className="w-3 h-3 mr-2" /> {t("chat.ban")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -106,7 +108,7 @@ export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={isConnected ? "Send a message..." : "Đang kết nối..."}
+              placeholder={isConnected ? t("chat.placeholder") : t("chat.connecting")}
               disabled={!isConnected}
               className="w-full bg-[#2d2d31] border border-[#464649] rounded px-3 py-2 pr-10 focus:outline-none focus:border-purple-500 text-sm disabled:opacity-50"
             />
@@ -123,7 +125,7 @@ export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
             className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Send className="w-4 h-4" />
-            <span className="hidden sm:inline">Chat</span>
+            <span className="hidden sm:inline">{t("chat.send")}</span>
           </button>
         </form>
       </div>
