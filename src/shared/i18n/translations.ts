@@ -535,6 +535,8 @@ export const translations = {
 
     "report.loginRequired": "Please log in to report.",
     "report.reasonRequired": "Please choose or enter a reason.",
+    "report.reasonTooLong": "Report reason must be 255 characters or fewer.",
+    "report.targetRequired": "Cannot determine the live session or channel to report.",
     "report.success": "Your report has been submitted. The moderation team will review it soon.",
     "report.failed": "Failed to submit report. Please try again.",
     "report.title": "Report violation",
@@ -549,6 +551,7 @@ export const translations = {
     "report.otherPlaceholder": "Enter your specific reason...",
     "report.cancel": "Cancel",
     "report.submit": "Submit report",
+    "report.open": "Report",
   },
   vi: {
     "common.loading": "Đang tải...",
@@ -1078,6 +1081,8 @@ export const translations = {
 
     "report.loginRequired": "Bạn cần đăng nhập để thực hiện báo cáo.",
     "report.reasonRequired": "Vui lòng chọn hoặc nhập lý do.",
+    "report.reasonTooLong": "Lý do báo cáo tối đa 255 ký tự.",
+    "report.targetRequired": "Không xác định được phiên live hoặc kênh cần báo cáo.",
     "report.success": "Báo cáo của bạn đã được gửi. Đội ngũ kiểm duyệt sẽ xử lý sớm nhất.",
     "report.failed": "Gửi báo cáo thất bại. Xin thử lại.",
     "report.title": "Báo cáo vi phạm",
@@ -1092,6 +1097,7 @@ export const translations = {
     "report.otherPlaceholder": "Nhập lý do cụ thể của bạn...",
     "report.cancel": "Hủy",
     "report.submit": "Gửi báo cáo",
+    "report.open": "Báo cáo",
   },
   es: {
     "common.loading": "Cargando...",
@@ -1621,6 +1627,8 @@ export const translations = {
 
     "report.loginRequired": "Inicia sesión para reportar.",
     "report.reasonRequired": "Elige o introduce una razón.",
+    "report.reasonTooLong": "La razón del reporte debe tener 255 caracteres o menos.",
+    "report.targetRequired": "No se pudo determinar la sesión o el canal a reportar.",
     "report.success": "Tu reporte fue enviado. El equipo de moderación lo revisará pronto.",
     "report.failed": "No se pudo enviar el reporte. Inténtalo de nuevo.",
     "report.title": "Reportar infracción",
@@ -1635,6 +1643,7 @@ export const translations = {
     "report.otherPlaceholder": "Introduce la razón específica...",
     "report.cancel": "Cancelar",
     "report.submit": "Enviar reporte",
+    "report.open": "Reportar",
   },
 } as const;
 

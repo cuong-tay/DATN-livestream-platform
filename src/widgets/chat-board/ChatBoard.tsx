@@ -1,9 +1,11 @@
-import { Send, Smile, MoreVertical, Wifi, WifiOff } from "lucide-react";
+import { Smile, MoreVertical, Wifi, WifiOff } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useStompChat } from "@/features/send-message/model/useStompChat";
 import { formatChatTime } from "@/shared/lib/formatters";
 
 interface ChatBoardProps {
   roomId: number | null;
+  sessionId?: number | null;
   streamerId?: number;
 }
 
@@ -13,10 +15,34 @@ import { Shield, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { useI18n } from "@/shared/i18n";
 
-export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
+const SEND_ICON_URL = "https://api.iconify.design/lucide:send-horizontal.svg?color=%23ffffff";
+const QUICK_EMOJIS = ["😀", "😂", "😍", "🔥", "👏", "❤️", "👍", "🎉", "😮", "😭", "😎", "💯"] as const;
+const EMOJI_GROUPS = [
+  {
+    label: "Popular",
+    emojis: QUICK_EMOJIS,
+  },
+  {
+    label: "Smileys",
+    emojis: ["😀", "😃", "😄", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "😮", "😭", "😡", "🤔", "😴", "🤯"],
+  },
+  {
+    label: "Hands",
+    emojis: ["👍", "👎", "👏", "🙌", "🙏", "🤝", "💪", "✌️", "👌", "🤌", "👋", "🤙"],
+  },
+  {
+    label: "Live",
+    emojis: ["🔥", "💯", "❤️", "💜", "✨", "🎉", "🏆", "⚡", "🚀", "🎮", "🎧", "🎤"],
+  },
+] as const;
+
+export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
   const { user } = useAuth();
   const { t } = useI18n();
   const isStreamer = Boolean(user && streamerId && user.userId === streamerId);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const emojiButtonRef = useRef<HTMLButtonElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
 
   const {
     messages,
@@ -25,12 +51,36 @@ export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
     setNewMessage,
     sendMessage,
     isConnected,
-  } = useStompChat(roomId);
+  } = useStompChat(roomId, sessionId);
 
   const handleBanUser = (username: string) => {
     // Backend still needs a real ban endpoint or userId in STOMP payload.
     toast.success(t("chat.banSuccess", { username }));
   };
+
+  const appendEmoji = (emoji: string) => {
+    setNewMessage((current) => `${current}${emoji}`);
+    setIsEmojiPickerOpen(false);
+  };
+
+  useEffect(() => {
+    if (!isEmojiPickerOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (
+        emojiPickerRef.current?.contains(target) ||
+        emojiButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setIsEmojiPickerOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isEmojiPickerOpen]);
 
   return (
     <div className="flex flex-col h-full bg-[#18181b]">
@@ -101,7 +151,34 @@ export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
       </div>
 
       {/* Input */}
-      <div className="border-t border-[#2d2d31] p-3">
+      <div className="relative border-t border-[#2d2d31] p-3">
+        {isEmojiPickerOpen && (
+          <div
+            ref={emojiPickerRef}
+            className="absolute bottom-[68px] right-3 z-50 max-h-[360px] w-[min(360px,calc(100%-24px))] overflow-y-auto rounded border border-[#464649] bg-[#202024] p-2 shadow-2xl"
+          >
+            {EMOJI_GROUPS.map((group) => (
+              <div key={group.label} className="mb-2 last:mb-0">
+                <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                  {group.label}
+                </p>
+                <div className="grid grid-cols-8 gap-1">
+                  {group.emojis.map((emoji) => (
+                    <button
+                      key={`${group.label}-${emoji}`}
+                      type="button"
+                      onClick={() => appendEmoji(emoji)}
+                      className="flex h-8 w-8 items-center justify-center rounded text-lg transition hover:bg-[#34343a]"
+                      aria-label={`Emoji ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <form onSubmit={sendMessage} className="flex gap-2">
           <div className="flex-1 relative">
             <input
@@ -113,18 +190,31 @@ export function ChatBoard({ roomId, streamerId }: ChatBoardProps) {
               className="w-full bg-[#2d2d31] border border-[#464649] rounded px-3 py-2 pr-10 focus:outline-none focus:border-purple-500 text-sm disabled:opacity-50"
             />
             <button
+              ref={emojiButtonRef}
               type="button"
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-[#464649] rounded"
+              onClick={() => setIsEmojiPickerOpen((current) => !current)}
+              disabled={!isConnected}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 transition hover:bg-[#464649] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              title="Emoji"
+              aria-label="Emoji"
+              aria-expanded={isEmojiPickerOpen}
             >
-              <Smile className="w-4 h-4 text-gray-400" />
+              <Smile className="h-4 w-4" />
             </button>
           </div>
           <button
             type="submit"
             disabled={!isConnected || !newMessage.trim()}
-            className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded transition flex items-center gap-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            title={t("chat.send")}
+            aria-label={t("chat.send")}
           >
-            <Send className="w-4 h-4" />
+            <img
+              src={SEND_ICON_URL}
+              alt=""
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0"
+            />
             <span className="hidden sm:inline">{t("chat.send")}</span>
           </button>
         </form>

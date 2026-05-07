@@ -1,12 +1,14 @@
 import { Link, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { Clock3, Loader2, PlayCircle } from "lucide-react";
+import { Clock3, Flag, Loader2, PlayCircle } from "lucide-react";
 import { roomService, type StreamSession } from "@/shared/api/room.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { VideoPlayer } from "@/features/play-stream";
 import { ReplayChatBoard } from "@/widgets/chat-board";
 import { Avatar, AvatarFallback } from "@/shared/ui";
 import { SessionReactionPill } from "@/features/reactions";
+import { ReportModal } from "@/features/report";
+import { useAuth } from "@/app/providers/AuthContext";
 import { useI18n, useI18nFormatters } from "@/shared/i18n";
 
 function normalizeViText(value: string | null | undefined): string {
@@ -27,6 +29,7 @@ function normalizeViText(value: string | null | undefined): string {
 export function VodPage() {
   const { t } = useI18n();
   const { formatDate, formatNumber } = useI18nFormatters();
+  const { user } = useAuth();
 
   const formatSessionTime = (value: string): string =>
     formatDate(value, {
@@ -46,6 +49,7 @@ export function VodPage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRelatedLoading, setIsRelatedLoading] = useState(false);
+  const [isReportOpen, setIsReportOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
 
@@ -118,6 +122,7 @@ export function VodPage() {
   const streamerName = normalizeViText(session.streamerUsername?.trim()) || `Streamer #${session.roomId}`;
   const streamerInitial = streamerName.charAt(0).toUpperCase();
   const sessionTitle = normalizeViText(session.title) || t("vod.defaultTitle");
+  const isOwnVod = Boolean(streamerId && user?.userId === streamerId);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
@@ -166,11 +171,23 @@ export function VodPage() {
                   )}
                 </div>
 
-                <SessionReactionPill
-                  sessionId={parsedSessionId}
-                  fallbackLikeCount={session.likeCount ?? 0}
-                  className="ml-auto"
-                />
+                <div className="ml-auto flex items-center gap-2">
+                  {!isOwnVod && (
+                    <button
+                      type="button"
+                      onClick={() => setIsReportOpen(true)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/20"
+                    >
+                      <Flag className="h-4 w-4" />
+                      {t("report.open")}
+                    </button>
+                  )}
+
+                  <SessionReactionPill
+                    sessionId={parsedSessionId}
+                    fallbackLikeCount={session.likeCount ?? 0}
+                  />
+                </div>
               </div>
 
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -268,6 +285,13 @@ export function VodPage() {
           </section>
         </aside>
       </main>
+
+      <ReportModal
+        isOpen={isReportOpen}
+        onOpenChange={setIsReportOpen}
+        sessionId={session.id}
+        roomId={session.roomId}
+      />
     </div>
   );
 }

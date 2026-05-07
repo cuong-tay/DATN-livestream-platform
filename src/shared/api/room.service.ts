@@ -1,4 +1,5 @@
-import { httpClient } from "./httpClient";
+import type { AxiosResponse } from "axios";
+import { httpClient, hasHttpStatus } from "./httpClient";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,11 +22,15 @@ export interface RoomLiveItem {
   categoryName: string;
   hlsUrl: string | null;
   status: RoomStatus;
+  activeSessionId?: number | null;
+  ingestUrl?: string | null;
   viewers?: number;
 }
 
 export interface RoomDetail extends RoomLiveItem {
   streamKey?: string;
+  createdAt?: string;
+  streamerName?: string;
 }
 
 export interface CreateRoomRequest {
@@ -35,11 +40,58 @@ export interface CreateRoomRequest {
 
 export interface CreateRoomResponse {
   roomId: number;
+  sessionId?: number | null;
   title: string;
   streamerName: string;
   categoryName: string;
   streamKey: string;
   status: RoomStatus;
+}
+
+export interface StartStreamSessionRequest {
+  title: string;
+  categoryId: number;
+}
+
+const ROOM_STATUS_PRIORITY: Record<RoomStatus, number> = {
+  LIVE: 0,
+  RECONNECTING: 1,
+  PENDING: 2,
+  ENDED: 3,
+  BANNED: 4,
+};
+
+function buildSyntheticResponse<T>(data: T): AxiosResponse<T> {
+  return {
+    data,
+    status: 200,
+    statusText: "OK",
+    headers: {},
+    config: {
+      headers: {} as AxiosResponse<T>["config"]["headers"],
+    },
+  };
+}
+
+export function isActiveRoomStatus(status?: RoomStatus): boolean {
+  return status === "PENDING" || status === "LIVE" || status === "RECONNECTING";
+}
+
+export function hasActiveLiveSession(
+  room?: Pick<RoomLiveItem, "activeSessionId" | "status"> | null,
+): boolean {
+  if (!room) return false;
+  if (room.activeSessionId != null) return true;
+  return room.status === "LIVE" || room.status === "RECONNECTING";
+}
+
+export function pickPreferredRoom(rooms: RoomLiveItem[]): RoomLiveItem | undefined {
+  return [...rooms]
+    .sort((left, right) => {
+      const statusDiff = ROOM_STATUS_PRIORITY[left.status] - ROOM_STATUS_PRIORITY[right.status];
+      if (statusDiff !== 0) return statusDiff;
+      return right.roomId - left.roomId;
+    })[0];
 }
 
 export type VodStatus = "PENDING" | "UPLOADING" | "DONE" | "FAILED";
@@ -100,9 +152,42 @@ export const roomService = {
   getRoomById: (roomId: number) =>
     httpClient.get<RoomDetail>(`/rooms/${roomId}`),
 
+  /** GET /rooms/me — phòng/channel cố định của tôi (JWT). Fallback về /rooms/me/all nếu backend cũ. */
+  getMyRoom: async () => {
+    try {
+      return await httpClient.get<RoomDetail>("/rooms/me");
+    } catch (error) {
+      if (!hasHttpStatus(error, 404) && !hasHttpStatus(error, 405)) {
+        throw error;
+      }
+
+      const response = await httpClient.get<PaginatedResponse<RoomLiveItem>>("/rooms/me/all", {
+        params: { page: 0, size: 50 },
+      });
+      const preferredRoom = pickPreferredRoom(response.data.content);
+      return buildSyntheticResponse<RoomDetail | null>(preferredRoom ? { ...preferredRoom } : null);
+    }
+  },
+
   /** POST /rooms — tạo phòng mới (JWT) */
   createRoom: (data: CreateRoomRequest) =>
     httpClient.post<CreateRoomResponse>("/rooms", data),
+
+  /**
+   * POST /rooms/me/sessions — bắt đầu một phiên live mới trên room hiện có.
+   * Fallback về POST /rooms khi backend chưa tách room/session.
+   */
+  startMyStreamSession: async (data: StartStreamSessionRequest) => {
+    try {
+      return await httpClient.post<CreateRoomResponse>("/rooms/me/sessions", data);
+    } catch (error) {
+      if (!hasHttpStatus(error, 404) && !hasHttpStatus(error, 405)) {
+        throw error;
+      }
+
+      return roomService.createRoom(data);
+    }
+  },
 
   /** PUT /rooms/me — cập nhật phòng của tôi (JWT) */
   updateMyRoom: (data: { title?: string; categoryId?: number }) =>
@@ -111,6 +196,19 @@ export const roomService = {
   /** PATCH /rooms/{roomId}/end — kết thúc stream (JWT) */
   endStream: (roomId: number) =>
     httpClient.patch(`/rooms/${roomId}/end`),
+
+  /** PATCH /rooms/me/end — kết thúc phiên live hiện tại trên room cố định. */
+  endMyStream: async (roomId: number) => {
+    try {
+      return await httpClient.patch("/rooms/me/end");
+    } catch (error) {
+      if (!hasHttpStatus(error, 404) && !hasHttpStatus(error, 405)) {
+        throw error;
+      }
+
+      return roomService.endStream(roomId);
+    }
+  },
 
   /** GET /rooms/me/all — tất cả phòng của tôi (JWT) */
   getMyRooms: (params?: { page?: number; size?: number }) =>

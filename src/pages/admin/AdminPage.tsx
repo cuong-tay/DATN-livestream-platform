@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Ban,
   CheckCircle2,
   Clock3,
+  Eye,
   Flag,
   LayoutDashboard,
   Loader2,
@@ -23,7 +25,7 @@ import {
 } from "@/shared/api/category.service";
 import {
   reportService,
-  type ModerateReportRequest,
+  type AdminResolveAction,
   type ReportItem,
   type ReportStatus,
 } from "@/shared/api/report.service";
@@ -64,6 +66,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Textarea,
 } from "@/shared/ui";
 
 const PAGE_SIZE = 8;
@@ -104,6 +107,19 @@ function statusBadgeVariant(
       return "destructive";
     default:
       return "outline";
+  }
+}
+
+function resolvedActionLabel(action: ReportItem["resolvedAction"]): string {
+  switch (action) {
+    case "WARN_STREAMER":
+      return "Cảnh cáo streamer";
+    case "BAN_STREAMER":
+      return "Ban streamer";
+    case "DISMISS":
+      return "Bác report";
+    default:
+      return "Chưa xử lý";
   }
 }
 
@@ -172,7 +188,11 @@ export function AdminPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [processingReportId, setProcessingReportId] = useState<number | null>(null);
-  const [adminNotes, setAdminNotes] = useState<Record<number, string>>({});
+  const [selectedReport, setSelectedReport] = useState<ReportItem | null>(null);
+  const [isReportDetailOpen, setIsReportDetailOpen] = useState(false);
+  const [isReportDetailLoading, setIsReportDetailLoading] = useState(false);
+  const [reportDetailError, setReportDetailError] = useState<string | null>(null);
+  const [reportAdminNote, setReportAdminNote] = useState("");
 
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [isCategoriesLoading, setIsCategoriesLoading] = useState(true);
@@ -209,15 +229,6 @@ export function AdminPage() {
         setTotalElements(payload.totalElements ?? 0);
         setTotalPages(payload.totalPages ?? 0);
 
-        setAdminNotes((previous) => {
-          const next = { ...previous };
-          for (const report of payload.content ?? []) {
-            if (next[report.id] === undefined) {
-              next[report.id] = report.adminNote ?? "";
-            }
-          }
-          return next;
-        });
       } catch (error) {
         setErrorMessage(extractApiErrorMessage(error));
       } finally {
@@ -429,38 +440,104 @@ export function AdminPage() {
     }
   };
 
-  const handleModerateReport = async (
-    report: ReportItem,
-    nextStatus: Exclude<ReportStatus, "PENDING">,
-  ) => {
-    setProcessingReportId(report.id);
-    setErrorMessage(null);
-
-    const payload: ModerateReportRequest = {
-      status: nextStatus,
-      adminNote: adminNotes[report.id]?.trim() || undefined,
-    };
+  const openReportDetail = async (report: ReportItem) => {
+    setSelectedReport(report);
+    setReportAdminNote(report.adminNote ?? "");
+    setReportDetailError(null);
+    setIsReportDetailOpen(true);
+    setIsReportDetailLoading(true);
 
     try {
-      const response = await reportService.moderate(report.id, payload);
+      const response = await reportService.getById(report.id);
+      setSelectedReport(response.data);
+      setReportAdminNote(response.data.adminNote ?? "");
+    } catch (error) {
+      const message = extractApiErrorMessage(error);
+      setReportDetailError(message);
+      toast.error(message);
+    } finally {
+      setIsReportDetailLoading(false);
+    }
+  };
+
+  const refreshSelectedReport = async (reportId: number) => {
+    try {
+      const response = await reportService.getById(reportId);
+      setSelectedReport(response.data);
+      setReportAdminNote(response.data.adminNote ?? "");
+    } catch {
+      setSelectedReport(null);
+      setIsReportDetailOpen(false);
+    }
+  };
+
+  const handleResolveReport = async (report: ReportItem, action: AdminResolveAction) => {
+    setProcessingReportId(report.id);
+    setErrorMessage(null);
+    setReportDetailError(null);
+
+    const adminNote = reportAdminNote.trim();
+    if (!adminNote) {
+      toast.error("Vui lòng nhập ghi chú xử lý trước khi cảnh cáo hoặc ban streamer.");
+      setProcessingReportId(null);
+      return;
+    }
+
+    try {
+      const response = await reportService.resolve(report.id, {
+        action,
+        adminNote,
+      });
       const updatedReport = response.data;
 
-      if (updatedReport && typeof updatedReport.id === "number") {
-        setReports((previous) =>
-          previous.map((item) => (item.id === updatedReport.id ? updatedReport : item)),
-        );
-      } else {
-        await loadReports("refresh");
-      }
+      setReports((previous) =>
+        previous.map((item) => (item.id === updatedReport.id ? updatedReport : item)),
+      );
+      setSelectedReport(updatedReport);
 
       toast.success(
-        nextStatus === "RESOLVED"
-          ? t("admin.toast.reportResolved", { id: report.id })
-          : t("admin.toast.reportDismissed", { id: report.id }),
+        action === "BAN_STREAMER"
+          ? `Đã ban streamer từ report #${report.id}.`
+          : `Đã cảnh cáo streamer từ report #${report.id}.`,
       );
+      await loadReports("refresh");
+      await refreshSelectedReport(report.id);
     } catch (error) {
       const message = extractApiErrorMessage(error);
       setErrorMessage(message);
+      setReportDetailError(message);
+      toast.error(message);
+    } finally {
+      setProcessingReportId(null);
+    }
+  };
+
+  const handleDismissReport = async (report: ReportItem) => {
+    setProcessingReportId(report.id);
+    setErrorMessage(null);
+    setReportDetailError(null);
+
+    const adminNote = reportAdminNote.trim();
+    if (!adminNote) {
+      toast.error("Vui lòng nhập lý do bác report.");
+      setProcessingReportId(null);
+      return;
+    }
+
+    try {
+      const response = await reportService.dismiss(report.id, { adminNote });
+      const updatedReport = response.data;
+      setReports((previous) =>
+        previous.map((item) => (item.id === updatedReport.id ? updatedReport : item)),
+      );
+      setSelectedReport(updatedReport);
+      toast.success(t("admin.toast.reportDismissed", { id: report.id }));
+      await loadReports("refresh");
+      await refreshSelectedReport(report.id);
+    } catch (error) {
+      const message = extractApiErrorMessage(error);
+      setErrorMessage(message);
+      setReportDetailError(message);
       toast.error(message);
     } finally {
       setProcessingReportId(null);
@@ -798,15 +875,14 @@ export function AdminPage() {
                       <TableHead>{t("admin.reports.reported")}</TableHead>
                       <TableHead className="min-w-[260px]">{t("admin.reports.reason")}</TableHead>
                       <TableHead>{t("admin.reports.status")}</TableHead>
+                      <TableHead>Loại</TableHead>
                       <TableHead>{t("admin.reports.createdAt")}</TableHead>
-                      <TableHead className="min-w-[220px]">{t("admin.reports.adminNote")}</TableHead>
-                      <TableHead className="w-[190px] text-right">{t("admin.reports.actions")}</TableHead>
+                      <TableHead className="w-[150px] text-right">{t("admin.reports.actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredReports.map((report) => {
                       const isPending = report.status === "PENDING";
-                      const isProcessing = processingReportId === report.id;
 
                       return (
                         <TableRow key={report.id}>
@@ -821,54 +897,21 @@ export function AdminPage() {
                               {t(statusLabelKey(report.status))}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-sm">{formatDateTime(report.createdAt)}</TableCell>
-                          <TableCell>
-                            <Input
-                              placeholder={t("admin.reports.notePlaceholder")}
-                              value={adminNotes[report.id] ?? ""}
-                              onChange={(event) =>
-                                setAdminNotes((previous) => ({
-                                  ...previous,
-                                  [report.id]: event.target.value,
-                                }))
-                              }
-                              disabled={!isPending || isProcessing}
-                            />
+                          <TableCell className="text-xs text-muted-foreground">
+                            {report.sessionId ? `Session #${report.sessionId}` : `Room #${report.roomId}`}
                           </TableCell>
+                          <TableCell className="text-sm">{formatDateTime(report.createdAt)}</TableCell>
                           <TableCell className="text-right">
-                            {isPending ? (
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  size="sm"
-                                  onClick={() => {
-                                    void handleModerateReport(report, "RESOLVED");
-                                  }}
-                                  disabled={isProcessing}
-                                >
-                                  {isProcessing ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <CheckCircle2 className="h-4 w-4" />
-                                  )}
-                                  {t("admin.reports.approve")}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => {
-                                    void handleModerateReport(report, "DISMISSED");
-                                  }}
-                                  disabled={isProcessing}
-                                >
-                                  <XCircle className="h-4 w-4" />
-                                  {t("admin.reports.dismiss")}
-                                </Button>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                {report.resolvedAt ? formatDateTime(report.resolvedAt) : t("admin.reports.processed")}
-                              </span>
-                            )}
+                            <Button
+                              size="sm"
+                              variant={isPending ? "default" : "outline"}
+                              onClick={() => {
+                                void openReportDetail(report);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                              Chi tiết
+                            </Button>
                           </TableCell>
                         </TableRow>
                       );
@@ -911,6 +954,173 @@ export function AdminPage() {
 
       </div>
     </main>
+
+      <Dialog
+        open={isReportDetailOpen}
+        onOpenChange={(open) => {
+          setIsReportDetailOpen(open);
+          if (!open) {
+            setSelectedReport(null);
+            setReportDetailError(null);
+            setReportAdminNote("");
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Chi tiết report #{selectedReport?.id ?? ""}</DialogTitle>
+            <DialogDescription>
+              Admin cần xem chi tiết trước khi cảnh cáo, ban streamer hoặc bác report.
+            </DialogDescription>
+          </DialogHeader>
+
+          {isReportDetailLoading ? (
+            <div className="flex min-h-48 items-center justify-center">
+              <Loader2 className="h-7 w-7 animate-spin text-primary" />
+            </div>
+          ) : selectedReport ? (
+            <div className="space-y-5">
+              {reportDetailError && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <span>{reportDetailError}</span>
+                </div>
+              )}
+
+              <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4 text-sm md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Người report</p>
+                  <p className="font-semibold">{selectedReport.reporterUsername} #{selectedReport.reporterId ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Streamer bị report</p>
+                  <p className="font-semibold">{selectedReport.streamerUsername || selectedReport.reportedUsername} #{selectedReport.streamerId ?? "-"}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Room / Session</p>
+                  <p className="font-semibold">
+                    Room #{selectedReport.roomId}
+                    {selectedReport.sessionId ? ` - Session #${selectedReport.sessionId}` : ""}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Trạng thái</p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <Badge variant={statusBadgeVariant(selectedReport.status)}>
+                      {t(statusLabelKey(selectedReport.status))}
+                    </Badge>
+                    <Badge variant="outline">{resolvedActionLabel(selectedReport.resolvedAction)}</Badge>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Tạo lúc</p>
+                  <p className="font-semibold">{formatDateTime(selectedReport.createdAt)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Xử lý lúc</p>
+                  <p className="font-semibold">
+                    {selectedReport.resolvedAt ? formatDateTime(selectedReport.resolvedAt) : "Chưa xử lý"}
+                  </p>
+                </div>
+                <div className="md:col-span-2">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Tiêu đề room/video</p>
+                  <p className="font-semibold">{selectedReport.roomTitle || "Không có dữ liệu"}</p>
+                </div>
+                {selectedReport.resolvedByUsername && (
+                  <div className="md:col-span-2">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Admin đã xử lý</p>
+                    <p className="font-semibold">
+                      {selectedReport.resolvedByUsername} #{selectedReport.resolvedById ?? "-"}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Lý do user gửi</Label>
+                <div className="rounded-lg border border-border bg-background p-3 text-sm text-muted-foreground">
+                  {selectedReport.reason}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="report-admin-note">Ghi chú admin</Label>
+                <Textarea
+                  id="report-admin-note"
+                  value={reportAdminNote}
+                  onChange={(event) => setReportAdminNote(event.target.value)}
+                  placeholder="Nhập ghi chú xử lý. Bắt buộc khi cảnh cáo, ban hoặc bác report."
+                  maxLength={500}
+                  disabled={selectedReport.status !== "PENDING" || processingReportId === selectedReport.id}
+                  className="min-h-28"
+                />
+                <p className="text-xs text-muted-foreground">{reportAdminNote.length}/500</p>
+              </div>
+
+              {selectedReport.adminNote && selectedReport.status !== "PENDING" && (
+                <div className="space-y-2">
+                  <Label>Ghi chú đã lưu</Label>
+                  <div className="rounded-lg border border-border bg-background p-3 text-sm text-muted-foreground">
+                    {selectedReport.adminNote}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border py-12 text-center text-muted-foreground">
+              Không tải được chi tiết report.
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={() => setIsReportDetailOpen(false)}
+              disabled={selectedReport ? processingReportId === selectedReport.id : false}
+            >
+              Đóng
+            </Button>
+
+            {selectedReport?.status === "PENDING" && (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void handleDismissReport(selectedReport);
+                  }}
+                  disabled={processingReportId === selectedReport.id}
+                >
+                  <XCircle className="h-4 w-4" />
+                  Bác report
+                </Button>
+                <Button
+                  onClick={() => {
+                    void handleResolveReport(selectedReport, "WARN_STREAMER");
+                  }}
+                  disabled={processingReportId === selectedReport.id}
+                >
+                  {processingReportId === selectedReport.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
+                  Cảnh cáo streamer
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    void handleResolveReport(selectedReport, "BAN_STREAMER");
+                  }}
+                  disabled={processingReportId === selectedReport.id}
+                >
+                  <Ban className="h-4 w-4" />
+                  Ban streamer
+                </Button>
+              </div>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={editingCategory !== null}

@@ -15,7 +15,7 @@ interface UseStompChatReturn {
   messages: ChatMessage[];
   newMessage: string;
   messagesContainerRef: React.RefObject<HTMLDivElement>;
-  setNewMessage: (msg: string) => void;
+  setNewMessage: React.Dispatch<React.SetStateAction<string>>;
   sendMessage: (e: React.FormEvent) => void;
   isConnected: boolean;
 }
@@ -44,7 +44,7 @@ function mapHistoryMessage(msg: ChatMessageResponse, idx: number): ChatMessage {
  * - Publishes to `/app/chat.sendMessage`.
  * - Subscribes to `/topic/room/{roomId}`.
  */
-export function useStompChat(roomId: number | null): UseStompChatReturn {
+export function useStompChat(roomId: number | null, sessionId?: number | null): UseStompChatReturn {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -124,6 +124,7 @@ export function useStompChat(roomId: number | null): UseStompChatReturn {
         "/app/chat.sendMessage",
         JSON.stringify({
           roomId,
+          sessionId: sessionId ?? undefined,
           senderName,
           content: newMessage.trim(),
         }),
@@ -144,7 +145,7 @@ export function useStompChat(roomId: number | null): UseStompChatReturn {
       setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), optimistic]);
       setNewMessage("");
     },
-    [newMessage, roomId, user, isConnected],
+    [newMessage, roomId, sessionId, user, isConnected],
   );
 
   return {

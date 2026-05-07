@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 
-import { roomService, type RoomDetail, type RoomLiveItem } from "@/shared/api/room.service";
+import { hasActiveLiveSession, roomService, type RoomDetail } from "@/shared/api/room.service";
 import { useAuth } from "./AuthContext";
 
 const ACTIVE_ROOM_STORAGE_KEY = "activeLiveRoom";
@@ -22,14 +22,6 @@ interface StreamContextValue {
 }
 
 const StreamContext = createContext<StreamContextValue | null>(null);
-
-function isActiveRoomStatus(status?: string): boolean {
-  return status === "PENDING" || status === "LIVE" || status === "RECONNECTING";
-}
-
-function pickCurrentRoom(rooms: RoomLiveItem[]): RoomLiveItem | undefined {
-  return rooms.find((room) => isActiveRoomStatus(room.status));
-}
 
 function readStoredRoom(): RoomDetail | null {
   try {
@@ -54,7 +46,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const [activeRoom, setActiveRoom] = useState<RoomDetail | null>(() => readStoredRoom());
 
   const syncActiveRoom = useCallback((room: RoomDetail | null) => {
-    const nextRoom = room && isActiveRoomStatus(room.status) ? room : null;
+    const nextRoom = room && hasActiveLiveSession(room) ? room : null;
     setActiveRoom(nextRoom);
     writeStoredRoom(nextRoom);
   }, []);
@@ -71,10 +63,10 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const res = await roomService.getMyRooms({ page: 0, size: 20 });
-      const currentRoom = pickCurrentRoom(res.data.content);
+      const res = await roomService.getMyRoom();
+      const currentRoom = res.data;
 
-      if (!currentRoom || !isActiveRoomStatus(currentRoom.status)) {
+      if (!currentRoom || !hasActiveLiveSession(currentRoom)) {
         clearActiveRoom();
         return;
       }
@@ -103,7 +95,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   }, [clearActiveRoom, isAuthLoading, isAuthenticated, refreshActiveRoom]);
 
   useEffect(() => {
-    if (!isAuthenticated || !activeRoom || !isActiveRoomStatus(activeRoom.status)) {
+    if (!isAuthenticated || !activeRoom || !hasActiveLiveSession(activeRoom)) {
       return;
     }
 
@@ -117,7 +109,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const value = useMemo<StreamContextValue>(
     () => ({
       activeRoom,
-      hasActiveStream: Boolean(activeRoom && isActiveRoomStatus(activeRoom.status)),
+      hasActiveStream: Boolean(activeRoom && hasActiveLiveSession(activeRoom)),
       syncActiveRoom,
       refreshActiveRoom,
       clearActiveRoom,

@@ -11,14 +11,15 @@ import {
 } from "@/shared/ui";
 import { toast } from "sonner";
 import { reportService, type CreateReportRequest } from "@/shared/api/report.service";
+import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { useAuth } from "@/app/providers/AuthContext";
 import { useI18n, type TranslationKey } from "@/shared/i18n";
 
 interface ReportModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  reportedUserId: number;
-  roomId: number;
+  roomId?: number | null;
+  sessionId?: number | null;
 }
 
 const REPORT_REASON_KEYS: TranslationKey[] = [
@@ -30,7 +31,7 @@ const REPORT_REASON_KEYS: TranslationKey[] = [
   "report.reasonOther",
 ];
 
-export function ReportModal({ isOpen, onOpenChange, reportedUserId, roomId }: ReportModalProps) {
+export function ReportModal({ isOpen, onOpenChange, roomId, sessionId }: ReportModalProps) {
   const { isAuthenticated } = useAuth();
   const { t } = useI18n();
   const [reasonKey, setReasonKey] = useState<TranslationKey | "">("");
@@ -56,11 +57,21 @@ export function ReportModal({ isOpen, onOpenChange, reportedUserId, roomId }: Re
       return;
     }
 
+    if (finalReason.length > 255) {
+      toast.error(t("report.reasonTooLong"));
+      return;
+    }
+
+    if (!sessionId && !roomId) {
+      toast.error(t("report.targetRequired"));
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const payload: CreateReportRequest = {
-        reportedUserId,
-        roomId,
+        sessionId: sessionId ?? undefined,
+        roomId: roomId ?? undefined,
         reason: finalReason,
       };
       await reportService.create(payload);
@@ -68,8 +79,8 @@ export function ReportModal({ isOpen, onOpenChange, reportedUserId, roomId }: Re
       onOpenChange(false);
       setReasonKey("");
       setOtherReason("");
-    } catch {
-      toast.error(t("report.failed"));
+    } catch (error) {
+      toast.error(extractApiErrorMessage(error) || t("report.failed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -117,6 +128,7 @@ export function ReportModal({ isOpen, onOpenChange, reportedUserId, roomId }: Re
                 value={otherReason}
                 onChange={(e) => setOtherReason(e.target.value)}
                 placeholder={t("report.otherPlaceholder")}
+                maxLength={255}
                 className="w-full mt-2 min-h-[80px] p-3 text-sm bg-background border border-border rounded-md focus:ring-red-500 focus:border-red-500 resize-none"
                 required
               />

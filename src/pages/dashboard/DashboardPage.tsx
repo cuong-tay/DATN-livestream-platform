@@ -16,7 +16,7 @@ import {
   ExternalLink,
   AlertCircle
 } from "lucide-react";
-import { roomService, type RoomDetail, type RoomLiveItem, type StreamSession } from "@/shared/api/room.service";
+import { hasActiveLiveSession, roomService, type RoomDetail, type StreamSession } from "@/shared/api/room.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { statisticsService, type StatsDashboard } from "@/shared/api/statistics.service";
 import { useStreamContext } from "@/app/providers/StreamContext";
@@ -83,14 +83,6 @@ async function writeToClipboard(text: string): Promise<void> {
   document.body.removeChild(textarea);
 }
 
-function isActiveRoomStatus(status?: string): boolean {
-  return status === "PENDING" || status === "LIVE" || status === "RECONNECTING";
-}
-
-function pickCurrentRoom(rooms: RoomLiveItem[]): RoomLiveItem | undefined {
-  return rooms.find((item) => isActiveRoomStatus(item.status));
-}
-
 export function DashboardPage() {
   const { t } = useI18n();
   const { formatDate, formatNumber, formatCurrency } = useI18nFormatters();
@@ -116,36 +108,46 @@ export function DashboardPage() {
   const [isStatsLoading, setIsStatsLoading] = useState(false);
   const [isRefreshingStudio, setIsRefreshingStudio] = useState(false);
 
-  // Create room dialog
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [newRoomTitle, setNewRoomTitle] = useState("");
-  const [newRoomCategoryId, setNewRoomCategoryId] = useState(0);
+  // Start stream session dialog
+  const [isStartDialogOpen, setIsStartDialogOpen] = useState(false);
+  const [startTitle, setStartTitle] = useState("");
+  const [startCategoryId, setStartCategoryId] = useState(0);
 
   // Controlled tab
   const [activeStudioTab, setActiveStudioTab] = useState("settings");
 
+  const openStartDialog = () => {
+    setStartTitle(room?.title ?? "");
+    setStartCategoryId(editCategoryId || categories[0]?.id || 0);
+    setIsStartDialogOpen(true);
+  };
+
   // ── Load thông tin phòng ban đầu ──────────────────────────────────────
   const fetchMyRoom = async () => {
     try {
-      const res = await roomService.getMyRooms({ page: 0, size: 20 });
-      const active = pickCurrentRoom(res.data.content);
+      const res = await roomService.getMyRoom();
+      const currentRoom = res.data;
 
-      if (!active) {
+      if (!currentRoom) {
         setRoom(null);
         clearActiveRoom();
         return;
       }
 
-      const cachedStreamKey = getCachedStreamKey(active.roomId);
+      if (currentRoom.streamKey) {
+        cacheStreamKey(currentRoom.roomId, currentRoom.streamKey);
+      }
+
+      const cachedStreamKey = getCachedStreamKey(currentRoom.roomId);
       const nextRoom: RoomDetail = {
-        ...active,
+        ...currentRoom,
         streamKey: cachedStreamKey,
       };
 
       setRoom(nextRoom);
-      syncActiveRoom(nextRoom);
-      setEditTitle(active.title);
-      const cat = categories.find(c => c.name === active.categoryName);
+      syncActiveRoom(hasActiveLiveSession(nextRoom) ? nextRoom : null);
+      setEditTitle(currentRoom.title);
+      const cat = categories.find(c => c.name === currentRoom.categoryName);
       if (cat) setEditCategoryId(cat.id);
     } catch (error) {
       toast.error(t("dashboard.toast.loadRoomFailed", { message: extractApiErrorMessage(error) }));
@@ -253,20 +255,28 @@ export function DashboardPage() {
     if (room?.roomId) {
       intervalId = setInterval(async () => {
         try {
-          const res = await roomService.getMyRooms({ page: 0, size: 20 });
-          const active = pickCurrentRoom(res.data.content);
+          const res = await roomService.getMyRoom();
+          const currentRoom = res.data;
 
-          if (!active) {
+          if (!currentRoom) {
             setRoom(null);
             clearActiveRoom();
             return;
           }
 
-          const cachedStreamKey = getCachedStreamKey(active.roomId);
+          const cachedStreamKey = getCachedStreamKey(currentRoom.roomId);
           setRoom((prev) => ({
-            ...active,
+            ...currentRoom,
             streamKey: cachedStreamKey ?? prev?.streamKey,
           }));
+          syncActiveRoom(
+            hasActiveLiveSession(currentRoom)
+              ? {
+                  ...currentRoom,
+                  streamKey: cachedStreamKey,
+                }
+              : null,
+          );
         } catch (error) {
           console.warn("[rooms] polling failed", extractApiErrorMessage(error));
         }
@@ -296,45 +306,37 @@ export function DashboardPage() {
   };
 
   // ── Tạo phòng mới (nếu chưa có) ───────────────────────────────────────
-  const handleCreateRoom = async () => {    const title = newRoomTitle.trim() || t("dashboard.createDialog.defaultTitle");
-    const categoryId = newRoomCategoryId || categories[0]?.id || 1;
-    setIsCreateDialogOpen(false);    setIsUpdating(true);
+  // ── Ép kết thúc Stream thủ công ───────────────────────────────────────
+  const handleStartStream = async () => {
+    if (!room?.roomId || hasActiveLiveSession(room)) return;
+
+    const title = startTitle.trim() || room.title || t("dashboard.createDialog.defaultTitle");
+    const categoryId = startCategoryId || editCategoryId || categories[0]?.id || 1;
+
+    setIsStartDialogOpen(false);
+    setIsUpdating(true);
     try {
-      const createRes = await roomService.createRoom({
+      const startRes = await roomService.startMyStreamSession({
         title,
         categoryId,
       });
 
-      const createPayload = createRes.data;
-      console.log("[createRoom] response", createPayload);
-      toast.info(
-        createPayload.streamKey
-          ? t("dashboard.toast.createDebugWithKey", { streamKey: createPayload.streamKey })
-          : t("dashboard.toast.createDebugNoKey", { response: JSON.stringify(createPayload) }),
-        { duration: 8000 },
-      );
-
-      cacheStreamKey(createRes.data.roomId, createRes.data.streamKey);
-      await fetchMyRoom();
+      cacheStreamKey(startRes.data.roomId, startRes.data.streamKey);
+      await Promise.all([fetchMyRoom(), fetchSessions(), fetchStats()]);
       toast.success(t("dashboard.toast.createSuccess"));
     } catch (error) {
-      const message = extractApiErrorMessage(error);
-      console.error("[createRoom] failed", message, error);
-      toast.error(t("dashboard.toast.createFailed", { message }));
+      toast.error(t("dashboard.toast.createFailed", { message: extractApiErrorMessage(error) }));
     } finally {
       setIsUpdating(false);
     }
   };
 
-  // ── Ép kết thúc Stream thủ công ───────────────────────────────────────
   const handleEndStream = async () => {
     if (!room?.roomId) return;
     setIsUpdating(true);
     try {
-      await roomService.endStream(room.roomId);
+      await roomService.endMyStream(room.roomId);
       toast.success(t("dashboard.toast.endSuccess"));
-      setRoom(null);
-      clearActiveRoom();
       await Promise.all([
         fetchMyRoom(),
         fetchSessions(),
@@ -385,71 +387,10 @@ export function DashboardPage() {
         <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-6">
           <Video className="text-primary w-10 h-10" />
         </div>
-        <h3 className="text-2xl font-bold mb-2">{t("dashboard.onboarding.title")}</h3>
+        <h3 className="text-2xl font-bold mb-2">Chua tai duoc room co dinh</h3>
         <p className="text-muted-foreground mb-8 max-w-sm text-center">
-          {t("dashboard.onboarding.description")}
+          Backend moi yeu cau moi streamer co san 1 room co dinh. Frontend se khong tao room moi nua.
         </p>
-        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button disabled={isUpdating} size="lg" className="px-8">
-              {isUpdating ? <Loader2 className="animate-spin mr-2" /> : null}
-              {t("dashboard.onboarding.start")}
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[480px] bg-[#18181b] border-[#3d3d3d] text-white">
-            <DialogHeader>
-              <DialogTitle>{t("dashboard.createDialog.title")}</DialogTitle>
-            </DialogHeader>
-            <form
-              onSubmit={(e) => { e.preventDefault(); void handleCreateRoom(); }}
-              className="space-y-4 mt-4"
-            >
-              <div className="grid gap-2">
-                <Label htmlFor="create-title" className="text-gray-300">{t("dashboard.createDialog.streamTitle")}</Label>
-                <Input
-                  id="create-title"
-                  value={newRoomTitle}
-                  onChange={(e) => setNewRoomTitle(e.target.value)}
-                  placeholder={t("dashboard.createDialog.titlePlaceholder")}
-                  className="bg-[#2d2d2d] border-[#4d4d4d] text-white"
-                  autoFocus
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="create-category" className="text-gray-300">{t("dashboard.createDialog.category")}</Label>
-                <select
-                  id="create-category"
-                  value={newRoomCategoryId}
-                  onChange={(e) => setNewRoomCategoryId(Number(e.target.value))}
-                  className="flex h-10 w-full rounded-md border border-[#4d4d4d] bg-[#2d2d2d] px-3 py-2 text-sm text-white"
-                >
-                  <option value={0}>{t("dashboard.createDialog.chooseCategory")}</option>
-                  {categories.map((cat: CategoryItem) => (
-                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex justify-end gap-2 pt-4">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setIsCreateDialogOpen(false)}
-                  className="text-gray-400"
-                >
-                  {t("actions.cancel")}
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={isUpdating || !newRoomTitle.trim()}
-                  className="bg-white text-black hover:bg-gray-200"
-                >
-                  {isUpdating ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
-                  {t("dashboard.createDialog.create")}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
         <Button
           onClick={() => void refreshStudioData()}
           variant="outline"
@@ -464,7 +405,7 @@ export function DashboardPage() {
     );
   }
 
-  const isLive = room.status === "LIVE" || room.status === "RECONNECTING";
+  const isLive = hasActiveLiveSession(room);
   const hasPlaybackUrl = Boolean(room.hlsUrl);
   const hasStreamKey = Boolean(room.streamKey);
   const chart30Days = Array.isArray(stats?.chart30Days) ? stats.chart30Days : [];
@@ -522,17 +463,82 @@ export function DashboardPage() {
             
             <Button 
               variant={isLive ? "destructive" : "secondary"} 
-              onClick={isLive ? handleEndStream : undefined}
+              onClick={isLive ? handleEndStream : openStartDialog}
               disabled={isUpdating}
               className={`font-bold transition-all ${!isLive ? "bg-[#3d3d3d] hover:bg-[#4d4d4d] text-white" : ""}`}
             >
               {isUpdating && isLive ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : (
                  isLive ? <Square className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />
               )}
-              {isLive ? t("dashboard.studio.endStream") : t("dashboard.studio.waitingObs")}
+              {isLive ? t("dashboard.studio.endStream") : t("dashboard.onboarding.start")}
             </Button>
           </div>
         </header>
+
+        <Dialog open={isStartDialogOpen} onOpenChange={setIsStartDialogOpen}>
+          <DialogContent className="sm:max-w-[480px] bg-[#18181b] border-[#3d3d3d] text-white">
+            <DialogHeader>
+              <DialogTitle>{t("dashboard.createDialog.title")}</DialogTitle>
+            </DialogHeader>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleStartStream();
+              }}
+              className="space-y-4 mt-4"
+            >
+              <div className="grid gap-2">
+                <Label htmlFor="start-title" className="text-gray-300">
+                  {t("dashboard.createDialog.streamTitle")}
+                </Label>
+                <Input
+                  id="start-title"
+                  value={startTitle}
+                  onChange={(e) => setStartTitle(e.target.value)}
+                  placeholder={t("dashboard.createDialog.titlePlaceholder")}
+                  className="bg-[#2d2d2d] border-[#4d4d4d] text-white"
+                  autoFocus
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="start-category" className="text-gray-300">
+                  {t("dashboard.createDialog.category")}
+                </Label>
+                <select
+                  id="start-category"
+                  value={startCategoryId}
+                  onChange={(e) => setStartCategoryId(Number(e.target.value))}
+                  className="flex h-10 w-full rounded-md border border-[#4d4d4d] bg-[#2d2d2d] px-3 py-2 text-sm text-white"
+                >
+                  <option value={0}>{t("dashboard.createDialog.chooseCategory")}</option>
+                  {categories.map((cat: CategoryItem) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setIsStartDialogOpen(false)}
+                  className="text-gray-400"
+                >
+                  {t("actions.cancel")}
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isUpdating}
+                  className="bg-white text-black hover:bg-gray-200"
+                >
+                  {isUpdating ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : null}
+                  {t("dashboard.onboarding.start")}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         {/* Content Area */}
         <div className="flex-1 p-6 max-w-6xl w-full mx-auto flex flex-col gap-6">
@@ -873,7 +879,7 @@ export function DashboardPage() {
          </div>
          <div className="flex-1 overflow-hidden">
             {/* Tái sử dụng component ChatBoard ở chế độ Dashboard */}
-            <ChatBoard roomId={room.roomId} />
+            <ChatBoard roomId={room.roomId} sessionId={room.activeSessionId ?? null} />
          </div>
       </div>
     </div>

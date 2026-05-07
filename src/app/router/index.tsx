@@ -8,6 +8,7 @@ import { DashboardPage } from "@/pages/dashboard/DashboardPage";
 import { LeaderboardPage } from "@/pages/leaderboard/LeaderboardPage";
 import { AdminPage } from "@/pages/admin/AdminPage";
 import { SettingsPage } from "@/pages/settings/SettingsPage";
+import { MyReportsPage } from "@/pages/reports/MyReportsPage";
 import { Layout } from "@/widgets/layout";
 import { ProtectedRoute } from "@/features/auth";
 
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
           { path: "dashboard", Component: DashboardPage },
           { path: "livestream/new", Component: DashboardPage }, // Cả 2 đều dẫn đến trang cấu hình stream
           { path: "settings", Component: SettingsPage },
+          { path: "reports/me", Component: MyReportsPage },
         ],
       },
       {

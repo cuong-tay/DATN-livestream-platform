@@ -5,8 +5,8 @@ import { VideoPlayer, useWatchRoom } from "@/features/play-stream";
 import { ChatBoard } from "@/widgets/chat-board";
 import { DonateModal } from "@/features/donate";
 import { ReportModal } from "@/features/report";
-import { RoomReactionPill } from "@/features/reactions";
-import { roomService, type RoomDetail } from "@/shared/api/room.service";
+import { RoomReactionPill, SessionReactionPill } from "@/features/reactions";
+import { hasActiveLiveSession, roomService, type RoomDetail } from "@/shared/api/room.service";
 import { followService } from "@/shared/api/follow.service";
 import { useAuth } from "@/app/providers/AuthContext";
 import { hasHttpStatus } from "@/shared/api/httpClient";
@@ -29,7 +29,7 @@ export function StreamPage() {
   const [isDonateOpen, setIsDonateOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
 
-  const isLive = room?.status === "LIVE" || room?.status === "RECONNECTING";
+  const isLive = hasActiveLiveSession(room);
   const isEnded = room?.status === "ENDED";
   const hasPlaybackUrl = Boolean(room?.hlsUrl);
 
@@ -37,6 +37,7 @@ export function StreamPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { viewCount, error: watchError } = useWatchRoom(
     isLive ? roomId : null,
+    isLive ? room?.activeSessionId ?? null : null,
     isLive ? room?.hlsUrl : null,
     videoRef,
   );
@@ -266,7 +267,11 @@ export function StreamPage() {
 
             {/* Actions */}
             <div className="p-4 flex flex-wrap items-center gap-2">
-              <RoomReactionPill roomId={roomId} />
+              {room.activeSessionId ? (
+                <SessionReactionPill sessionId={room.activeSessionId} />
+              ) : (
+                <RoomReactionPill roomId={roomId} />
+              )}
               <button className="flex items-center gap-2 px-4 py-2 bg-[#2d2d31] hover:bg-[#3d3d41] rounded-full transition">
                 <Share2 className="w-4 h-4" />
                 {t("stream.share")}
@@ -283,13 +288,13 @@ export function StreamPage() {
 
           {/* â”€â”€ Chat (desktop) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div className="h-[calc(100vh-var(--app-header-offset))] sticky top-[var(--app-header-offset)] hidden lg:block">
-            <ChatBoard roomId={roomId!} />
+            <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
           </div>
         </div>
 
         {/* Chat (mobile) */}
         <div className="lg:hidden border-t border-[#2d2d31] h-[500px]">
-          <ChatBoard roomId={roomId!} />
+          <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
         </div>
       </div>
 
@@ -303,7 +308,7 @@ export function StreamPage() {
       <ReportModal 
          isOpen={isReportOpen} 
          onOpenChange={setIsReportOpen} 
-         reportedUserId={room.streamerId} 
+         sessionId={room.activeSessionId ?? null}
          roomId={roomId!} 
       />
     </div>

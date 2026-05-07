@@ -12,15 +12,17 @@ import {
   AlertCircle,
   Clock,
   Eye,
+  Flag,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { StreamCard } from "@/entities/stream";
-import { roomService, type PublicVodItem, type RoomLiveItem, type StreamSession } from "@/shared/api/room.service";
+import { hasActiveLiveSession, roomService, type PublicVodItem, type RoomLiveItem, type StreamSession } from "@/shared/api/room.service";
 import { followService } from "@/shared/api/follow.service";
 import { userService, type PublicUserProfile } from "@/shared/api/user.service";
 import { useAuth } from "@/app/providers/AuthContext";
 import { formatViewerCount } from "@/shared/lib/formatters";
 import { hasHttpStatus } from "@/shared/api/httpClient";
+import { ReportModal } from "@/features/report";
 import Hls from "hls.js";
 import { useI18n, useI18nFormatters } from "@/shared/i18n";
 
@@ -35,6 +37,11 @@ interface PersistedThumbnailEntry {
   vodUrl: string;
   dataUrl: string;
   updatedAt: number;
+}
+
+interface ReportTarget {
+  sessionId?: number | null;
+  roomId?: number | null;
 }
 
 const vodThumbnailCache = new Map<string, string>();
@@ -362,14 +369,13 @@ export function ChannelPage() {
   const [isSessionsLoading, setIsSessionsLoading] = useState(false);
   const [isPublicVodsLoading, setIsPublicVodsLoading] = useState(false);
   const [publicVodsError, setPublicVodsError] = useState<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<"home" | "videos">("home");
 
-  const liveRoom = rooms.find(
-    (r) => r.status === "LIVE" || r.status === "RECONNECTING",
-  );
+  const liveRoom = rooms.find((r) => hasActiveLiveSession(r));
   const isOwnChannel = Boolean(isAuthenticated && user?.userId === streamerId);
 
   // ── Fetch channel data ───────────────────────────────────────────────
@@ -396,8 +402,8 @@ export function ChannelPage() {
         : Promise.resolve(null),
       // Own channel fallback: get room list via account when streamer is offline
       isOwnChannel
-        ? roomService.getMyRooms({ page: 0, size: 20 })
-        : Promise.resolve(null),
+        ? roomService.getMyRoom()
+        : Promise.resolve({ data: null }),
     ]).then(([roomsResult, profileResult, followerResult, followStatusResult, myRoomsResult]) => {
       // Rooms
       let streamerRooms: RoomLiveItem[] = [];
@@ -408,13 +414,8 @@ export function ChannelPage() {
         );
       }
 
-      if (
-        streamerRooms.length === 0 &&
-        isOwnChannel &&
-        myRoomsResult?.status === "fulfilled" &&
-        myRoomsResult.value
-      ) {
-        streamerRooms = myRoomsResult.value.data.content;
+      if (streamerRooms.length === 0 && isOwnChannel && myRoomsResult?.status === "fulfilled") {
+        streamerRooms = myRoomsResult.value.data ? [myRoomsResult.value.data] : [];
       }
 
       setRooms(streamerRooms);
@@ -463,7 +464,7 @@ export function ChannelPage() {
     if (activeSection !== "home") return;
 
     const roomForSessionList =
-      rooms.find((r) => r.status === "LIVE" || r.status === "RECONNECTING" || r.status === "PENDING") ?? rooms[0];
+      rooms.find((r) => hasActiveLiveSession(r) || r.status === "PENDING") ?? rooms[0];
 
     if (!roomForSessionList) return;
 
@@ -579,6 +580,7 @@ export function ChannelPage() {
   const streamerInitial = streamerName.trim().charAt(0).toUpperCase() || "?";
   const primaryCategory = rooms[0]?.categoryName || t("common.noData");
   const vodCount = isOwnChannel ? sessions.length : publicVods.length;
+  const channelRoomId = liveRoom?.roomId ?? rooms[0]?.roomId ?? null;
 
   return (
     <div className="min-h-screen">
@@ -655,6 +657,16 @@ export function ChannelPage() {
                   <Share2 className="h-4 w-4" />
                   {t("channel.share")}
                 </button>
+                {!isOwnChannel && channelRoomId && (
+                  <button
+                    type="button"
+                    onClick={() => setReportTarget({ roomId: channelRoomId })}
+                    className="inline-flex items-center gap-2 rounded-md bg-red-500/15 px-4 py-2 font-semibold text-red-200 transition hover:bg-red-500/25"
+                  >
+                    <Flag className="h-4 w-4" />
+                    {t("report.open")}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -751,62 +763,63 @@ export function ChannelPage() {
                 ) : (
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
                     {sessions.map((session) => (
-                      <Link
+                      <div
                         key={session.id}
-                        to={`/vod/${session.id}`}
-                        className="group block text-left"
+                        className="group relative block text-left"
                       >
-                        <div className="relative mb-2 aspect-video overflow-hidden rounded-lg border border-[#2d2d31] bg-gradient-to-br from-slate-800 via-slate-900 to-black">
-                          {session.vodUrl ? (
-                            <VodThumbnail
-                              vodUrl={session.vodUrl}
-                              title={session.title || t("channel.untitledStream")}
-                            />
-                          ) : (
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <PlayCircle className="h-12 w-12 text-white/60 transition group-hover:scale-110 group-hover:text-white" />
-                            </div>
-                          )}
-                          <div className="absolute left-2 top-2 rounded bg-purple-600 px-2 py-0.5 text-xs font-bold text-white">
-                            {t("channel.replayBadge")}
-                          </div>
-                          {session.durationMinutes > 0 && (
-                            <div className="absolute bottom-2 right-2 rounded bg-black/80 px-2 py-0.5 text-[11px] text-white">
-                              {t("channel.durationMinutes", { count: session.durationMinutes })}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex gap-2">
-                          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-purple-600 text-sm font-semibold text-white">
-                            {streamerAvatarUrl ? (
-                              <img
-                                src={streamerAvatarUrl}
-                                alt={t("channel.avatarAlt", { name: streamerName })}
-                                className="h-full w-full object-cover"
+                        <Link to={`/vod/${session.id}`} className="block">
+                          <div className="relative mb-2 aspect-video overflow-hidden rounded-lg border border-[#2d2d31] bg-gradient-to-br from-slate-800 via-slate-900 to-black">
+                            {session.vodUrl ? (
+                              <VodThumbnail
+                                vodUrl={session.vodUrl}
+                                title={session.title || t("channel.untitledStream")}
                               />
                             ) : (
-                              streamerInitial
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <PlayCircle className="h-12 w-12 text-white/60 transition group-hover:scale-110 group-hover:text-white" />
+                              </div>
+                            )}
+                            <div className="absolute left-2 top-2 rounded bg-purple-600 px-2 py-0.5 text-xs font-bold text-white">
+                              {t("channel.replayBadge")}
+                            </div>
+                            {session.durationMinutes > 0 && (
+                              <div className="absolute bottom-2 right-2 rounded bg-black/80 px-2 py-0.5 text-[11px] text-white">
+                                {t("channel.durationMinutes", { count: session.durationMinutes })}
+                              </div>
                             )}
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="mb-0.5 line-clamp-2 text-sm font-semibold transition group-hover:text-purple-400">
-                              {session.title || t("channel.untitledStream")}
-                            </p>
-                            <p className="text-sm text-gray-400">{streamerName}</p>
-                            <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-500">
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {t("channel.durationMinutes", { count: session.durationMinutes })}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Eye className="h-3 w-3" />
-                                {t("channel.peak", { count: formatNumber(session.maxCcv ?? 0) })}
-                              </span>
+
+                          <div className="flex gap-2">
+                            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-purple-600 text-sm font-semibold text-white">
+                              {streamerAvatarUrl ? (
+                                <img
+                                  src={streamerAvatarUrl}
+                                  alt={t("channel.avatarAlt", { name: streamerName })}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                streamerInitial
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1 pr-9">
+                              <p className="mb-0.5 line-clamp-2 text-sm font-semibold transition group-hover:text-purple-400">
+                                {session.title || t("channel.untitledStream")}
+                              </p>
+                              <p className="text-sm text-gray-400">{streamerName}</p>
+                              <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {t("channel.durationMinutes", { count: session.durationMinutes })}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Eye className="h-3 w-3" />
+                                  {t("channel.peak", { count: formatNumber(session.maxCcv ?? 0) })}
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </Link>
+                        </Link>
+                      </div>
                     ))}
                   </div>
                 )
@@ -826,62 +839,73 @@ export function ChannelPage() {
               ) : (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
                   {publicVods.map((vod) => (
-                    <Link
+                    <div
                       key={vod.sessionId}
-                      to={`/vod/${vod.sessionId}`}
-                      className="group block text-left"
+                      className="group relative block text-left"
                     >
-                      <div className="relative mb-2 aspect-video overflow-hidden rounded-lg border border-[#2d2d31] bg-gradient-to-br from-slate-800 via-slate-900 to-black">
-                        {vod.vodUrl ? (
-                          <VodThumbnail
-                            vodUrl={vod.vodUrl}
-                            title={vod.title || t("channel.untitledStream")}
-                          />
-                        ) : (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <PlayCircle className="h-12 w-12 text-white/60 transition group-hover:scale-110 group-hover:text-white" />
-                          </div>
-                        )}
-                        <div className="absolute left-2 top-2 rounded bg-purple-600 px-2 py-0.5 text-xs font-bold text-white">
-                          {t("channel.replayBadge")}
-                        </div>
-                        {vod.durationMinutes > 0 && (
-                          <div className="absolute bottom-2 right-2 rounded bg-black/80 px-2 py-0.5 text-[11px] text-white">
-                            {t("channel.durationMinutes", { count: vod.durationMinutes })}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex gap-2">
-                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-purple-600 text-sm font-semibold text-white">
-                          {streamerAvatarUrl ? (
-                            <img
-                              src={streamerAvatarUrl}
-                              alt={t("channel.avatarAlt", { name: streamerName })}
-                              className="h-full w-full object-cover"
+                      <Link to={`/vod/${vod.sessionId}`} className="block">
+                        <div className="relative mb-2 aspect-video overflow-hidden rounded-lg border border-[#2d2d31] bg-gradient-to-br from-slate-800 via-slate-900 to-black">
+                          {vod.vodUrl ? (
+                            <VodThumbnail
+                              vodUrl={vod.vodUrl}
+                              title={vod.title || t("channel.untitledStream")}
                             />
                           ) : (
-                            streamerInitial
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <PlayCircle className="h-12 w-12 text-white/60 transition group-hover:scale-110 group-hover:text-white" />
+                            </div>
+                          )}
+                          <div className="absolute left-2 top-2 rounded bg-purple-600 px-2 py-0.5 text-xs font-bold text-white">
+                            {t("channel.replayBadge")}
+                          </div>
+                          {vod.durationMinutes > 0 && (
+                            <div className="absolute bottom-2 right-2 rounded bg-black/80 px-2 py-0.5 text-[11px] text-white">
+                              {t("channel.durationMinutes", { count: vod.durationMinutes })}
+                            </div>
                           )}
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="mb-0.5 line-clamp-2 text-sm font-semibold transition group-hover:text-purple-400">
-                            {vod.title || t("channel.untitledStream")}
-                          </p>
-                          <p className="text-sm text-gray-400">{streamerName}</p>
-                          <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-500">
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {t("channel.durationMinutes", { count: vod.durationMinutes })}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Eye className="h-3 w-3" />
-                              {t("channel.views", { count: formatNumber(vod.viewCount) })}
-                            </span>
+
+                        <div className="flex gap-2">
+                          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-purple-600 text-sm font-semibold text-white">
+                            {streamerAvatarUrl ? (
+                              <img
+                                src={streamerAvatarUrl}
+                                alt={t("channel.avatarAlt", { name: streamerName })}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              streamerInitial
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1 pr-9">
+                            <p className="mb-0.5 line-clamp-2 text-sm font-semibold transition group-hover:text-purple-400">
+                              {vod.title || t("channel.untitledStream")}
+                            </p>
+                            <p className="text-sm text-gray-400">{streamerName}</p>
+                            <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {t("channel.durationMinutes", { count: vod.durationMinutes })}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Eye className="h-3 w-3" />
+                                {t("channel.views", { count: formatNumber(vod.viewCount) })}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </Link>
+                      </Link>
+                      {!isOwnChannel && (
+                        <button
+                          type="button"
+                          onClick={() => setReportTarget({ sessionId: vod.sessionId, roomId: vod.roomId })}
+                          className="absolute right-0 top-[calc(56.25%+0.5rem)] inline-flex h-8 w-8 items-center justify-center rounded-full bg-red-500/15 text-red-200 transition hover:bg-red-500/25"
+                          aria-label={t("report.open")}
+                        >
+                          <Flag className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}
@@ -938,6 +962,14 @@ export function ChannelPage() {
         </div>
       </section>
 
+      <ReportModal
+        isOpen={Boolean(reportTarget)}
+        onOpenChange={(open) => {
+          if (!open) setReportTarget(null);
+        }}
+        sessionId={reportTarget?.sessionId ?? null}
+        roomId={reportTarget?.roomId ?? null}
+      />
     </div>
   );
 }

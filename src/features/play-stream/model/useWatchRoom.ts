@@ -29,6 +29,7 @@ interface UseWatchRoomResult {
  */
 export function useWatchRoom(
   roomId: number | null,
+  sessionId: number | null,
   hlsUrl: string | null | undefined,
   videoRef: RefObject<HTMLVideoElement>,
 ): UseWatchRoomResult {
@@ -187,13 +188,22 @@ export function useWatchRoom(
   useEffect(() => {
     if (!roomId) return;
 
-    viewHistoryService.sendHeartbeat(roomId).catch(() => {});
-    const id = setInterval(() => {
+    const sendHeartbeat = () => {
+      if (sessionId) {
+        viewHistoryService.sendSessionHeartbeat(sessionId, roomId).catch(() => {});
+        return;
+      }
+
       viewHistoryService.sendHeartbeat(roomId).catch(() => {});
+    };
+
+    sendHeartbeat();
+    const id = setInterval(() => {
+      sendHeartbeat();
     }, HEARTBEAT_INTERVAL_MS);
 
     return () => clearInterval(id);
-  }, [roomId]);
+  }, [roomId, sessionId]);
 
   return { viewCount, error };
 }

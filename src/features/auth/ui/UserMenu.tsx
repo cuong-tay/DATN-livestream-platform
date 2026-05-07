@@ -8,6 +8,7 @@ import {
   Wallet,
   MonitorPlay,
   Languages,
+  Flag,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -101,6 +102,12 @@ export function UserMenu({ user }: UserMenuProps) {
             <Link to="/dashboard" className="flex w-full items-center">
               <Video className="w-4 h-4 mr-2 text-muted-foreground" />
               <span>{t("menu.dashboard")}</span>
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem asChild className="cursor-pointer focus:bg-accent focus:text-accent-foreground">
+            <Link to="/reports/me" className="flex w-full items-center">
+              <Flag className="w-4 h-4 mr-2 text-muted-foreground" />
+              <span>Báo cáo của tôi</span>
             </Link>
           </DropdownMenuItem>
           {user.role === "ADMIN" && (
