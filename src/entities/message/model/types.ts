@@ -6,4 +6,5 @@ export interface ChatMessage {
   message: string;
   timestamp: Date;
   color: string;
+  messageType?: string;
 }

@@ -21,12 +21,17 @@ function normalizeApiBaseUrl(rawValue?: string): string {
 
 function buildWsUrl(rawValue: string | undefined, apiBaseUrl: string): string {
   if (rawValue?.trim()) {
-    return trimTrailingSlashes(rawValue.trim());
+    const socketUrl = new URL(trimTrailingSlashes(rawValue.trim()));
+    socketUrl.protocol =
+      socketUrl.protocol === "https:" || socketUrl.protocol === "wss:" ? "wss:" : "ws:";
+    return trimTrailingSlashes(socketUrl.toString());
   }
 
   const apiUrl = new URL(apiBaseUrl);
   apiUrl.protocol = apiUrl.protocol === "https:" ? "wss:" : "ws:";
-  apiUrl.pathname = `${trimTrailingSlashes(apiUrl.pathname)}/ws`;
+  apiUrl.pathname = "/ws";
+  apiUrl.search = "";
+  apiUrl.hash = "";
 
   return trimTrailingSlashes(apiUrl.toString());
 }
@@ -40,7 +45,9 @@ function buildSockJsUrl(rawValue: string | undefined, apiBaseUrl: string): strin
 
   const apiUrl = new URL(apiBaseUrl);
   apiUrl.protocol = apiUrl.protocol === "https:" ? "https:" : "http:";
-  apiUrl.pathname = `${trimTrailingSlashes(apiUrl.pathname)}/ws`;
+  apiUrl.pathname = "/ws";
+  apiUrl.search = "";
+  apiUrl.hash = "";
 
   return trimTrailingSlashes(apiUrl.toString());
 }

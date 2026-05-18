@@ -1,4 +1,5 @@
-import { Smile, MoreVertical, Wifi, WifiOff } from "lucide-react";
+import { AlertTriangle, Ban, Bot, MoreVertical, Shield, Smile, Wifi, WifiOff, X } from "lucide-react";
+import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useStompChat } from "@/features/send-message/model/useStompChat";
 import { formatChatTime } from "@/shared/lib/formatters";
@@ -11,11 +12,11 @@ interface ChatBoardProps {
 
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/shared/ui";
 import { useAuth } from "@/app/providers/AuthContext";
-import { Shield, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { useI18n } from "@/shared/i18n";
 
 const SEND_ICON_URL = "https://api.iconify.design/lucide:send-horizontal.svg?color=%23ffffff";
+const BOT_PREFIX_PATTERN = /^@bot\b\s*/i;
 const QUICK_EMOJIS = ["😀", "😂", "😍", "🔥", "👏", "❤️", "👍", "🎉", "😮", "😭", "😎", "💯"] as const;
 const EMOJI_GROUPS = [
   {
@@ -41,6 +42,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
   const { t } = useI18n();
   const isStreamer = Boolean(user && streamerId && user.userId === streamerId);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const [isBotMode, setIsBotMode] = useState(false);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
 
@@ -50,6 +52,12 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
     messagesContainerRef,
     setNewMessage,
     sendMessage,
+    askBot,
+    botLoading,
+    botAlert,
+    clearBotAlert,
+    chatAlert,
+    clearChatAlert,
     isConnected,
   } = useStompChat(roomId, sessionId);
 
@@ -62,6 +70,39 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
     setNewMessage((current) => `${current}${emoji}`);
     setIsEmojiPickerOpen(false);
   };
+
+  const handleSubmit = (event: FormEvent) => {
+    const botQuestion = newMessage.replace(BOT_PREFIX_PATTERN, "").trim();
+    const shouldAskBot = isBotMode || BOT_PREFIX_PATTERN.test(newMessage);
+
+    if (!shouldAskBot) {
+      sendMessage(event);
+      return;
+    }
+
+    event.preventDefault();
+    if (askBot(botQuestion)) {
+      setIsBotMode(false);
+    }
+  };
+
+  const toggleBotMode = () => {
+    setIsBotMode((current) => !current);
+    setIsEmojiPickerOpen(false);
+  };
+
+  useEffect(() => {
+    if (!botAlert) return;
+
+    toast.error(botAlert);
+    clearBotAlert();
+  }, [botAlert, clearBotAlert]);
+
+  useEffect(() => {
+    if (!chatAlert) return;
+
+    toast.error(chatAlert);
+  }, [chatAlert]);
 
   useEffect(() => {
     if (!isEmojiPickerOpen) return;
@@ -81,6 +122,9 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [isEmojiPickerOpen]);
+
+  const isBotSubmit = isBotMode || BOT_PREFIX_PATTERN.test(newMessage);
+  const isSubmitDisabled = !isConnected || !newMessage.trim() || (isBotSubmit && botLoading);
 
   return (
     <div className="flex flex-col h-full bg-[#18181b]">
@@ -117,37 +161,62 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
             <p className="text-xs mt-1">{t("chat.emptyHint")}</p>
           </div>
         )}
-        {messages.map((msg, index) => (
-          <div key={`${msg.id}-${index}`} className="text-sm leading-relaxed group flex items-start justify-between">
-            <div>
-               <span className="text-xs text-gray-500 mr-2">
-                 {formatChatTime(msg.timestamp)}
-               </span>
-               <span style={{ color: msg.color }} className="font-semibold">
-                 {msg.username}
-               </span>
-               <span className="text-gray-300">: {msg.message}</span>
+        {messages.map((msg, index) => {
+          const isBotMessage = msg.messageType === "BOT";
+
+          return (
+            <div
+              key={`${msg.id}-${index}`}
+              className={`text-sm leading-relaxed group flex items-start justify-between ${
+                isBotMessage ? "rounded border border-cyan-500/20 bg-cyan-500/10 px-2 py-1.5" : ""
+              }`}
+            >
+              <div className="min-w-0">
+                <span className="text-xs text-gray-500 mr-2">
+                  {formatChatTime(msg.timestamp)}
+                </span>
+                {isBotMessage && (
+                  <span className="mr-1 inline-flex align-[-2px] text-cyan-300">
+                    <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+                  </span>
+                )}
+                <span style={{ color: msg.color }} className="font-semibold">
+                  {isBotMessage ? "AI Bot" : msg.username}
+                </span>
+                <span className={isBotMessage ? "text-cyan-50" : "text-gray-300"}>
+                  : {msg.message}
+                </span>
+              </div>
+
+              {isStreamer && !isBotMessage && msg.username !== user?.username && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#2d2d31] rounded text-gray-400 mt-0.5">
+                      <MoreVertical className="w-3 h-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="bg-[#18181b] border-[#2d2d31] text-white">
+                    <DropdownMenuItem
+                      onClick={() => handleBanUser(msg.username)}
+                      className="text-red-400 focus:text-red-300 focus:bg-red-500/10 cursor-pointer text-xs"
+                    >
+                      <Ban className="w-3 h-3 mr-2" /> {t("chat.ban")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
-            
-            {isStreamer && msg.username !== user?.username && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#2d2d31] rounded text-gray-400 mt-0.5">
-                    <MoreVertical className="w-3 h-3" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="bg-[#18181b] border-[#2d2d31] text-white">
-                  <DropdownMenuItem 
-                     onClick={() => handleBanUser(msg.username)}
-                     className="text-red-400 focus:text-red-300 focus:bg-red-500/10 cursor-pointer text-xs"
-                  >
-                     <Ban className="w-3 h-3 mr-2" /> {t("chat.ban")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+          );
+        })}
+        {botLoading && (
+          <div className="rounded border border-cyan-500/20 bg-cyan-500/10 px-2 py-1.5 text-sm text-cyan-100">
+            <span className="mr-1 inline-flex align-[-2px] text-cyan-300">
+              <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+            </span>
+            <span className="font-semibold text-cyan-300">AI Bot</span>
+            <span className="text-cyan-50"> {t("chat.botTyping")}</span>
           </div>
-        ))}
+        )}
       </div>
 
       {/* Input */}
@@ -179,16 +248,55 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
             ))}
           </div>
         )}
-        <form onSubmit={sendMessage} className="flex gap-2">
+        {chatAlert && (
+          <div className="mb-2 flex items-start gap-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-300" />
+            <span className="min-w-0 flex-1">{chatAlert}</span>
+            <button
+              type="button"
+              onClick={clearChatAlert}
+              className="rounded p-0.5 text-red-200 hover:bg-red-500/20 hover:text-white"
+              aria-label="Dismiss chat alert"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+        <form onSubmit={handleSubmit} className="flex gap-2">
           <div className="flex-1 relative">
             <input
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              placeholder={isConnected ? t("chat.placeholder") : t("chat.connecting")}
+              placeholder={
+                isConnected
+                  ? isBotMode
+                    ? t("chat.botPlaceholder")
+                    : t("chat.placeholder")
+                  : t("chat.connecting")
+              }
               disabled={!isConnected}
-              className="w-full bg-[#2d2d31] border border-[#464649] rounded px-3 py-2 pr-10 focus:outline-none focus:border-purple-500 text-sm disabled:opacity-50"
+              className={`w-full bg-[#2d2d31] border rounded px-3 py-2 pr-20 focus:outline-none text-sm disabled:opacity-50 ${
+                isBotMode
+                  ? "border-cyan-500/60 focus:border-cyan-400"
+                  : "border-[#464649] focus:border-purple-500"
+              }`}
             />
+            <button
+              type="button"
+              onClick={toggleBotMode}
+              disabled={!isConnected || botLoading}
+              className={`absolute right-9 top-1/2 -translate-y-1/2 rounded p-1 transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                isBotMode
+                  ? "bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30"
+                  : "text-gray-400 hover:bg-[#464649] hover:text-white"
+              }`}
+              title={t("chat.askBot")}
+              aria-label={t("chat.askBot")}
+              aria-pressed={isBotMode}
+            >
+              <Bot className="h-4 w-4" />
+            </button>
             <button
               ref={emojiButtonRef}
               type="button"
@@ -204,10 +312,12 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
           </div>
           <button
             type="submit"
-            disabled={!isConnected || !newMessage.trim()}
-            className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded transition flex items-center gap-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            title={t("chat.send")}
-            aria-label={t("chat.send")}
+            disabled={isSubmitDisabled}
+            className={`px-4 py-2 rounded transition flex items-center gap-2 text-white disabled:opacity-50 disabled:cursor-not-allowed ${
+              isBotSubmit ? "bg-cyan-600 hover:bg-cyan-700" : "bg-purple-600 hover:bg-purple-700"
+            }`}
+            title={isBotSubmit ? t("chat.askBot") : t("chat.send")}
+            aria-label={isBotSubmit ? t("chat.askBot") : t("chat.send")}
           >
             <img
               src={SEND_ICON_URL}
@@ -215,7 +325,9 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
               aria-hidden="true"
               className="h-4 w-4 shrink-0"
             />
-            <span className="hidden sm:inline">{t("chat.send")}</span>
+            <span className="hidden sm:inline">
+              {isBotSubmit ? t("chat.askBotShort") : t("chat.send")}
+            </span>
           </button>
         </form>
       </div>

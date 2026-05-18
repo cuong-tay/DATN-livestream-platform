@@ -94,7 +94,7 @@ export function pickPreferredRoom(rooms: RoomLiveItem[]): RoomLiveItem | undefin
     })[0];
 }
 
-export type VodStatus = "PENDING" | "UPLOADING" | "DONE" | "FAILED";
+export type VodStatus = "PENDING" | "UPLOADING" | "DONE" | "FAILED" | "DRAFT";
 
 export interface StreamSession {
   id: number;
@@ -137,8 +137,27 @@ export interface ChatMessageResponse {
   roomId: number;
   senderName: string;
   content: string;
+  messageType?: string;
   timestamp?: string;
   createdAt?: string;
+}
+
+export type BlockedWordMatchType = "CONTAINS" | "EXACT" | "REGEX";
+
+export interface BlockedWord {
+  id: number;
+  roomId: number;
+  word: string;
+  matchType: BlockedWordMatchType;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertBlockedWordRequest {
+  word?: string;
+  matchType?: BlockedWordMatchType;
+  enabled?: boolean;
 }
 
 // ── Service ──────────────────────────────────────────────────────────────────
@@ -251,7 +270,35 @@ export const roomService = {
   getChatHistory: (roomId: number) =>
     httpClient.get<ChatMessageResponse[]>(`/rooms/${roomId}/chats`),
 
-  /** POST /rooms/me/sessions/{sessionId}/retry-vod — thử upload lại VOD (JWT) */
+  /** GET /rooms/{roomId}/blocked-words - streamer JWT */
+  getBlockedWords: (roomId: number) =>
+    httpClient.get<BlockedWord[]>(`/rooms/${roomId}/blocked-words`),
+
+  /** POST /rooms/{roomId}/blocked-words - streamer JWT */
+  createBlockedWord: (roomId: number, data: Required<UpsertBlockedWordRequest>) =>
+    httpClient.post<BlockedWord>(`/rooms/${roomId}/blocked-words`, data),
+
+  /** PATCH /rooms/{roomId}/blocked-words/{blockedWordId} - streamer JWT */
+  updateBlockedWord: (roomId: number, blockedWordId: number, data: UpsertBlockedWordRequest) =>
+    httpClient.patch<BlockedWord>(`/rooms/${roomId}/blocked-words/${blockedWordId}`, data),
+
+  /** DELETE /rooms/{roomId}/blocked-words/{blockedWordId} - streamer JWT */
+  deleteBlockedWord: (roomId: number, blockedWordId: number) =>
+    httpClient.delete<void>(`/rooms/${roomId}/blocked-words/${blockedWordId}`),
+
+  /** POST /rooms/me/sessions/{sessionId}/retry-vod - JWT */
   retryVodUpload: (sessionId: number) =>
     httpClient.post(`/rooms/me/sessions/${sessionId}/retry-vod`),
+
+  /** POST /rooms/me/sessions/{sessionId}/deploy-vod - JWT */
+  deployVod: (sessionId: number) =>
+    httpClient.post(`/rooms/me/sessions/${sessionId}/deploy-vod`),
+
+  /** PATCH /rooms/me/sessions/{sessionId}/draft-vod - JWT */
+  draftVod: (sessionId: number) =>
+    httpClient.patch(`/rooms/me/sessions/${sessionId}/draft-vod`),
+
+  /** PATCH /rooms/me/sessions/{sessionId}/delete-vod - JWT */
+  deleteVod: (sessionId: number) =>
+    httpClient.patch<void>(`/rooms/me/sessions/${sessionId}/delete-vod`),
 };

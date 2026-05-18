@@ -61,7 +61,7 @@ npm run build
 
 **Lưu ý khi chạy cùng Backend:** File cấu hình `vite.config.ts` đã được tích hợp sẵn hệ thống Proxy tự động (`dns.setDefaultResultOrder('ipv4first')` và `localhost:8080`) để giải quyết vấn đề CORS, đụng độ IPv6 kết nối tới máy chủ Spring Boot. Bạn chỉ cần chạy Backend cổng 8080 là Frontend sẽ tự hiểu.
 
-Frontend hiện gọi backend trực tiếp, không dùng Vite proxy. Mặc định app sẽ gọi REST tới `https://api.cuongtay.me/api/v1` và WebSocket tới `wss://api.cuongtay.me/api/v1/ws`.
+Frontend hiện gọi backend trực tiếp, không dùng Vite proxy và không gọi trực tiếp AI-service. Mặc định app sẽ gọi REST tới `https://api.cuongtay.me/api/v1` và WebSocket/SockJS tới `wss://api.cuongtay.me/ws`.
 
 Nếu backend chạy cổng hoặc domain khác, cấu hình biến môi trường theo [.env.example](c:/Users/ASUS/DATN-livestream-platform/.env.example):
 
@@ -71,10 +71,21 @@ VITE_API_BASE_URL=https://api.cuongtay.me/api/v1
 # VITE_API_BASE_URL=https://api.cuongtay.me
 
 # không bắt buộc nếu WS cùng host với REST
-VITE_WS_URL=wss://api.cuongtay.me/api/v1/ws
+VITE_WS_URL=wss://api.cuongtay.me/ws
 ```
 
 Vì frontend và backend có thể là cross-origin (đặc biệt khi local dev), backend cần bật CORS cho `http://localhost:5173`.
+
+Luồng AI trong live chat luôn đi qua backend:
+
+- REST lấy lịch sử chat: `GET /api/v1/rooms/{roomId}/chats`
+- STOMP gửi chat: `/app/chat.sendMessage`
+- STOMP hỏi bot: `/app/chat.askBot`
+- STOMP nghe phòng: `/topic/room/{roomId}`
+- STOMP nghe bot riêng: `/user/queue/bot-replies`
+- STOMP nghe cảnh báo riêng: `/user/queue/alerts`
+
+Không đưa `localhost:8001`, `streaming-ai:8001`, `/api/v1/internal/ai/**` hoặc token nội bộ AI vào frontend.
 
 ## 🌐 Deploy Lên Vercel
 

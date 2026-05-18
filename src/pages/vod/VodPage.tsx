@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { Clock3, Flag, Loader2, PlayCircle } from "lucide-react";
+import { Clock3, Download, Flag, Loader2, PlayCircle, Share2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { roomService, type StreamSession } from "@/shared/api/room.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { VideoPlayer } from "@/features/play-stream";
@@ -8,6 +9,7 @@ import { ReplayChatBoard } from "@/widgets/chat-board";
 import { Avatar, AvatarFallback } from "@/shared/ui";
 import { SessionReactionPill } from "@/features/reactions";
 import { ReportModal } from "@/features/report";
+import { VideoAssistantPanel } from "@/features/video-assistant";
 import { useAuth } from "@/app/providers/AuthContext";
 import { useI18n, useI18nFormatters } from "@/shared/i18n";
 
@@ -26,10 +28,35 @@ function normalizeViText(value: string | null | undefined): string {
   }
 }
 
+function makeDownloadFileName(title: string, url: string): string {
+  const extensionFromUrl = new URL(url, window.location.href).pathname.split(".").pop();
+  const extension =
+    extensionFromUrl && extensionFromUrl.length <= 5 ? extensionFromUrl : "m3u8";
+  const safeTitle = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u00C0-\u1EF9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
+  return `${safeTitle || "video-replay"}.${extension}`;
+}
+
+function triggerBrowserDownload(url: string, fileName: string) {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.target = "_blank";
+  anchor.rel = "noreferrer";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 export function VodPage() {
   const { t } = useI18n();
   const { formatDate, formatNumber } = useI18nFormatters();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
   const formatSessionTime = (value: string): string =>
     formatDate(value, {
@@ -50,6 +77,7 @@ export function VodPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRelatedLoading, setIsRelatedLoading] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
 
@@ -107,6 +135,10 @@ export function VodPage() {
       .finally(() => setIsRelatedLoading(false));
   }, [session?.roomId, session?.id]);
 
+  useEffect(() => {
+    setIsAssistantOpen(false);
+  }, [parsedSessionId]);
+
   if (isLoading) {
     return <div className="flex min-h-screen items-center justify-center">{t("vod.loading")}</div>;
   }
@@ -123,6 +155,151 @@ export function VodPage() {
   const streamerInitial = streamerName.charAt(0).toUpperCase();
   const sessionTitle = normalizeViText(session.title) || t("vod.defaultTitle");
   const isOwnVod = Boolean(streamerId && user?.userId === streamerId);
+  const canUseVideoAssistant = session.vodStatus === "DONE" && Boolean(session.vodUrl);
+
+  const handleShare = async () => {
+    const shareUrl = window.location.href;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: sessionTitle,
+          text: `${sessionTitle} - ${streamerName}`,
+          url: shareUrl,
+        });
+        return;
+      }
+
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success(t("vod.shareCopied"));
+    } catch (shareError) {
+      if (shareError instanceof DOMException && shareError.name === "AbortError") {
+        return;
+      }
+
+      toast.error(t("vod.shareFailed"));
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!session.vodUrl) {
+      toast.error(t("vod.downloadUnavailable"));
+      return;
+    }
+
+    const fileName = makeDownloadFileName(sessionTitle, session.vodUrl);
+    triggerBrowserDownload(session.vodUrl, fileName);
+    toast.message(t("vod.downloadOpened"));
+  };
+
+  const renderAssistantPanel = () => (
+    <VideoAssistantPanel
+      roomId={session.roomId}
+      sessionId={session.id}
+      videoId={session.id}
+      title={sessionTitle}
+      isEnabled={canUseVideoAssistant}
+      isAuthenticated={isAuthenticated}
+      disabledReason={t("vod.assistant.unavailable")}
+      getCurrentTimeSeconds={() => currentTime}
+      onClose={() => setIsAssistantOpen(false)}
+    />
+  );
+
+  const renderReplayChatPanel = () => (
+    <section className="h-full overflow-hidden rounded-xl border border-white/15 bg-[#0f0f0f]">
+      <div className="border-b border-white/10 px-4 py-3">
+        <h2 className="text-sm font-semibold tracking-wide text-foreground">{t("vod.replayChat")}</h2>
+      </div>
+
+      <div className="h-[52vh] min-h-[360px] max-h-[560px] overflow-hidden">
+        <ReplayChatBoard sessionId={session.id} currentTime={currentTime} sessionStart={session.startedAt} />
+      </div>
+    </section>
+  );
+
+  const renderRelatedVideosPanel = () => (
+    <section className="rounded-xl border border-white/15 bg-[#0f0f0f] p-3">
+      <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+        <button
+          type="button"
+          className="shrink-0 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background"
+        >
+          {t("vod.filterAll")}
+        </button>
+        <button
+          type="button"
+          className="shrink-0 rounded-lg bg-[#272727] px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f]"
+        >
+          {t("vod.filterFromStreamer", { name: streamerName })}
+        </button>
+        <button
+          type="button"
+          className="shrink-0 rounded-lg bg-[#272727] px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f]"
+        >
+          {t("vod.filterRecommended")}
+        </button>
+      </div>
+
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-sm font-semibold text-foreground">{t("vod.relatedTitle")}</p>
+        <span className="text-xs text-muted-foreground">{t("vod.videoCount", { count: formatNumber(relatedSessions.length) })}</span>
+      </div>
+
+      <div className="space-y-3">
+        {isRelatedLoading ? (
+          <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {t("vod.relatedLoading")}
+          </div>
+        ) : relatedSessions.length === 0 ? (
+          <div className="rounded-lg bg-[#272727] p-4 text-sm text-muted-foreground">
+            {t("vod.relatedEmpty")}
+          </div>
+        ) : (
+          relatedSessions.map((item) => {
+            const itemTitle = normalizeViText(item.title) || t("vod.defaultTitle");
+            const itemDuration = item.durationMinutes > 0 ? t("vod.durationMinutes", { count: formatNumber(item.durationMinutes) }) : t("vod.durationUpdating");
+
+            return (
+              <Link
+                key={item.id}
+                to={`/vod/${item.id}`}
+                className="group grid grid-cols-[136px_1fr] gap-3 rounded-lg p-1.5 transition hover:bg-white/[0.06] sm:grid-cols-[168px_1fr]"
+              >
+                <div className="relative aspect-video overflow-hidden rounded-lg bg-gradient-to-br from-neutral-700 via-neutral-900 to-black">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <PlayCircle className="h-7 w-7 text-white/85 transition group-hover:scale-110" />
+                  </div>
+                  <div className="absolute bottom-1.5 right-1.5 rounded bg-black/85 px-1.5 py-0.5 text-[11px] font-medium text-white">
+                    {itemDuration}
+                  </div>
+                </div>
+
+                <div className="min-w-0 py-0.5">
+                  <p className="line-clamp-2 text-sm font-semibold leading-5 text-foreground">
+                    {itemTitle}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">{streamerName}</p>
+                  <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                    <Clock3 className="h-3 w-3" />
+                    {formatSessionTime(item.startedAt)}
+                  </p>
+                </div>
+              </Link>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+
+  const renderDefaultSidebar = () => (
+    <div className="space-y-5">
+      {renderReplayChatPanel()}
+      {renderRelatedVideosPanel()}
+    </div>
+  );
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
@@ -171,7 +348,45 @@ export function VodPage() {
                   )}
                 </div>
 
-                <div className="ml-auto flex items-center gap-2">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                  <SessionReactionPill
+                    sessionId={parsedSessionId}
+                    fallbackLikeCount={session.likeCount ?? 0}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setIsAssistantOpen(true)}
+                    className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                      isAssistantOpen
+                        ? "bg-cyan-500/20 text-cyan-100 ring-1 ring-cyan-400/30"
+                        : "bg-[#272727] text-foreground hover:bg-[#3f3f3f]"
+                    }`}
+                    aria-expanded={isAssistantOpen}
+                  >
+                    <Sparkles className="h-4 w-4 text-cyan-300" />
+                    {t("vod.assistant.open")}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleShare()}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#272727] px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f]"
+                  >
+                    <Share2 className="h-4 w-4" />
+                    {t("vod.share")}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleDownload()}
+                    disabled={!session.vodUrl}
+                    className="inline-flex items-center gap-2 rounded-lg bg-[#272727] px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Download className="h-4 w-4" />
+                    {t("vod.download")}
+                  </button>
+
                   {!isOwnVod && (
                     <button
                       type="button"
@@ -182,11 +397,6 @@ export function VodPage() {
                       {t("report.open")}
                     </button>
                   )}
-
-                  <SessionReactionPill
-                    sessionId={parsedSessionId}
-                    fallbackLikeCount={session.likeCount ?? 0}
-                  />
                 </div>
               </div>
 
@@ -196,93 +406,17 @@ export function VodPage() {
                 <span>{t("vod.duration", { duration: session.durationMinutes > 0 ? t("vod.durationMinutes", { count: formatNumber(session.durationMinutes) }) : t("vod.durationUpdating") })}</span>
               </div>
             </div>
+
+            {isAssistantOpen && (
+              <div className="xl:hidden">
+                {renderAssistantPanel()}
+              </div>
+            )}
           </div>
         </div>
 
         <aside className="hidden w-[420px] shrink-0 overflow-y-auto border-l border-border/50 bg-background px-4 py-3 xl:block 2xl:w-[500px]">
-          <section className="overflow-hidden rounded-xl border border-white/15 bg-[#0f0f0f]">
-            <div className="border-b border-white/10 px-4 py-3">
-              <h2 className="text-sm font-semibold tracking-wide text-foreground">{t("vod.replayChat")}</h2>
-            </div>
-
-            <div className="h-[52vh] min-h-[360px] max-h-[560px] overflow-hidden">
-              <ReplayChatBoard sessionId={session.id} currentTime={currentTime} sessionStart={session.startedAt} />
-            </div>
-          </section>
-
-          <section className="mt-5">
-            <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-              <button
-                type="button"
-                className="shrink-0 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background"
-              >
-                {t("vod.filterAll")}
-              </button>
-              <button
-                type="button"
-                className="shrink-0 rounded-lg bg-[#272727] px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f]"
-              >
-                {t("vod.filterFromStreamer", { name: streamerName })}
-              </button>
-              <button
-                type="button"
-                className="shrink-0 rounded-lg bg-[#272727] px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f]"
-              >
-                {t("vod.filterRecommended")}
-              </button>
-            </div>
-
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold text-foreground">{t("vod.relatedTitle")}</p>
-              <span className="text-xs text-muted-foreground">{t("vod.videoCount", { count: formatNumber(relatedSessions.length) })}</span>
-            </div>
-
-            <div className="space-y-3">
-              {isRelatedLoading ? (
-                <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {t("vod.relatedLoading")}
-                </div>
-              ) : relatedSessions.length === 0 ? (
-                <div className="rounded-lg bg-[#272727] p-4 text-sm text-muted-foreground">
-                  {t("vod.relatedEmpty")}
-                </div>
-              ) : (
-                relatedSessions.map((item) => {
-                  const itemTitle = normalizeViText(item.title) || t("vod.defaultTitle");
-                  const itemDuration = item.durationMinutes > 0 ? t("vod.durationMinutes", { count: formatNumber(item.durationMinutes) }) : t("vod.durationUpdating");
-
-                  return (
-                    <Link
-                      key={item.id}
-                      to={`/vod/${item.id}`}
-                      className="group grid grid-cols-[168px_1fr] gap-3 rounded-lg p-1.5 transition hover:bg-white/[0.06]"
-                    >
-                      <div className="relative aspect-video overflow-hidden rounded-lg bg-gradient-to-br from-neutral-700 via-neutral-900 to-black">
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <PlayCircle className="h-7 w-7 text-white/85 transition group-hover:scale-110" />
-                        </div>
-                        <div className="absolute bottom-1.5 right-1.5 rounded bg-black/85 px-1.5 py-0.5 text-[11px] font-medium text-white">
-                          {itemDuration}
-                        </div>
-                      </div>
-
-                      <div className="min-w-0 py-0.5">
-                        <p className="line-clamp-2 text-sm font-semibold leading-5 text-foreground">
-                          {itemTitle}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">{streamerName}</p>
-                        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                          <Clock3 className="h-3 w-3" />
-                          {formatSessionTime(item.startedAt)}
-                        </p>
-                      </div>
-                    </Link>
-                  );
-                })
-              )}
-            </div>
-          </section>
+          {isAssistantOpen ? renderAssistantPanel() : renderDefaultSidebar()}
         </aside>
       </main>
 

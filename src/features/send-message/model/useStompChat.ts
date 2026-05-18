@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 import type { ChatMessage } from "@/entities/message/model/types";
 import { roomService, type ChatMessageResponse } from "@/shared/api/room.service";
-import { CHAT_COLORS, CHAT_MAX_MESSAGES, BRAND_COLOR } from "@/shared/lib/constants";
+import { CHAT_COLORS, CHAT_MAX_MESSAGES } from "@/shared/lib/constants";
 import { useAuth } from "@/app/providers/AuthContext";
 import {
   getStompConnectionState,
@@ -17,25 +17,82 @@ interface UseStompChatReturn {
   messagesContainerRef: React.RefObject<HTMLDivElement>;
   setNewMessage: React.Dispatch<React.SetStateAction<string>>;
   sendMessage: (e: React.FormEvent) => void;
+  askBot: (question: string) => boolean;
+  botLoading: boolean;
+  botAlert: string | null;
+  clearBotAlert: () => void;
+  chatAlert: string | null;
+  clearChatAlert: () => void;
   isConnected: boolean;
 }
+
+interface ChatAlertPayload {
+  type?: string;
+  message?: string;
+  durationMinutes?: number | null;
+}
+
+type ChatWirePayload = Partial<ChatMessageResponse> & {
+  answer?: string;
+  message?: string;
+};
 
 /** Pick a random chat colour for incoming messages */
 function randomColor(): string {
   return CHAT_COLORS[Math.floor(Math.random() * CHAT_COLORS.length)];
 }
 
+function normalizeMessageType(messageType?: string, fallback?: string): string | undefined {
+  return messageType?.trim() || fallback;
+}
+
+function readMessageText(payload: ChatWirePayload): string {
+  return payload.content ?? payload.answer ?? payload.message ?? "";
+}
+
 /** Map a REST history message to the UI ChatMessage shape */
 function mapHistoryMessage(msg: ChatMessageResponse, idx: number): ChatMessage {
   const rawTimestamp = msg.timestamp ?? msg.createdAt;
   const parsedTimestamp = rawTimestamp ? new Date(rawTimestamp) : new Date();
+  const messageType = normalizeMessageType(msg.messageType);
   return {
     id: `hist-${idx}-${rawTimestamp ?? "unknown"}`,
-    username: msg.senderName,
-    message: msg.content,
+    username: msg.senderName || (messageType === "BOT" ? "AI Bot" : "Anonymous"),
+    message: readMessageText(msg),
     timestamp: parsedTimestamp,
-    color: randomColor(),
+    color: messageType === "BOT" ? "#22d3ee" : randomColor(),
+    messageType,
   };
+}
+
+function mapIncomingMessage(
+  payload: ChatWirePayload,
+  id: string,
+  fallbackMessageType?: string,
+): ChatMessage {
+  const rawTimestamp = payload.timestamp ?? payload.createdAt;
+  const messageType = normalizeMessageType(payload.messageType, fallbackMessageType);
+  return {
+    id,
+    username: payload.senderName || (messageType === "BOT" ? "AI Bot" : "Anonymous"),
+    message: readMessageText(payload),
+    timestamp: rawTimestamp ? new Date(rawTimestamp) : new Date(),
+    color: messageType === "BOT" ? "#22d3ee" : randomColor(),
+    messageType,
+  };
+}
+
+function isBotUnavailableAlert(payload: ChatAlertPayload): boolean {
+  const normalizedType = payload.type?.toUpperCase() ?? "";
+  if (
+    normalizedType.includes("BLOCK") ||
+    normalizedType.includes("MODERATION") ||
+    normalizedType.includes("TIMEOUT")
+  ) {
+    return false;
+  }
+
+  return normalizedType.includes("UNAVAILABLE") || normalizedType.includes("BOT");
 }
 
 /**
@@ -48,6 +105,9 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
+  const [botLoading, setBotLoading] = useState(false);
+  const [botAlert, setBotAlert] = useState<string | null>(null);
+  const [chatAlert, setChatAlert] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(
     getStompConnectionState() === "connected",
   );
@@ -61,6 +121,11 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
 
   // ── Fetch REST history on mount ────────────────────────────────────────
   useEffect(() => {
+    setMessages([]);
+    setBotLoading(false);
+    setBotAlert(null);
+    setChatAlert(null);
+
     if (!roomId) return;
 
     roomService
@@ -88,20 +153,55 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
 
     return subscribeToTopic(`/topic/room/${roomId}`, (frame) => {
       try {
-        const payload = JSON.parse(frame.body) as ChatMessageResponse;
-        const rawTimestamp = payload.timestamp ?? payload.createdAt;
-        const incoming: ChatMessage = {
-          id: nextId(),
-          username: payload.senderName,
-          message: payload.content,
-          timestamp: rawTimestamp ? new Date(rawTimestamp) : new Date(),
-          color: randomColor(),
-        };
+        const payload = JSON.parse(frame.body) as ChatWirePayload;
+        const incoming = mapIncomingMessage(payload, nextId());
+        if (payload.messageType === "BOT") {
+          setBotLoading(false);
+        }
+        if (!incoming.message.trim()) return;
         setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), incoming]);
       } catch {
         // Malformed message — skip
       }
     });
+  }, [roomId]);
+
+  useEffect(() => {
+    if (!roomId) return;
+
+    const unsubscribeBotReplies = subscribeToTopic("/user/queue/bot-replies", (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as ChatWirePayload;
+        const incoming = mapIncomingMessage(payload, nextId(), "BOT");
+        setBotLoading(false);
+        if (!incoming.message.trim()) return;
+        setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), incoming]);
+      } catch {
+        // Malformed private bot reply - skip
+        setBotLoading(false);
+        setBotAlert("AI Bot is currently unavailable.");
+      }
+    });
+
+    const unsubscribeAlerts = subscribeToTopic("/user/queue/alerts", (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as ChatAlertPayload;
+        if (isBotUnavailableAlert(payload)) {
+          setBotAlert(payload.message ?? "AI Bot is currently unavailable.");
+        } else {
+          setChatAlert(payload.message ?? "Your chat message was blocked.");
+        }
+        setBotLoading(false);
+      } catch {
+        setChatAlert("Your chat message was blocked.");
+        setBotLoading(false);
+      }
+    });
+
+    return () => {
+      unsubscribeBotReplies();
+      unsubscribeAlerts();
+    };
   }, [roomId]);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────
@@ -119,12 +219,14 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       if (!newMessage.trim() || !roomId || !isConnected) return;
 
       const senderName = user?.username || "Anonymous";
+      setChatAlert(null);
 
       const didPublish = publishMessage(
         "/app/chat.sendMessage",
         JSON.stringify({
           roomId,
           sessionId: sessionId ?? undefined,
+          userId: user?.userId,
           senderName,
           content: newMessage.trim(),
         }),
@@ -134,19 +236,46 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
         return;
       }
 
-      // Optimistic UI — show the message immediately
-      const optimistic: ChatMessage = {
-        id: nextId(),
-        username: senderName,
-        message: newMessage.trim(),
-        timestamp: new Date(),
-        color: BRAND_COLOR,
-      };
-      setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), optimistic]);
       setNewMessage("");
     },
     [newMessage, roomId, sessionId, user, isConnected],
   );
+
+  const askBot = useCallback(
+    (question: string) => {
+      const trimmedQuestion = question.trim();
+      if (!trimmedQuestion || !roomId || !isConnected || botLoading) return false;
+
+      const didPublish = publishMessage(
+        "/app/chat.askBot",
+        JSON.stringify({
+          roomId,
+          sessionId: sessionId ?? undefined,
+          userId: user?.userId,
+          senderName: user?.username || "Anonymous",
+          question: trimmedQuestion,
+        }),
+      );
+
+      if (!didPublish) {
+        return false;
+      }
+
+      setBotAlert(null);
+      setBotLoading(true);
+      setNewMessage("");
+      return true;
+    },
+    [botLoading, roomId, sessionId, user, isConnected],
+  );
+
+  const clearBotAlert = useCallback(() => {
+    setBotAlert(null);
+  }, []);
+
+  const clearChatAlert = useCallback(() => {
+    setChatAlert(null);
+  }, []);
 
   return {
     messages,
@@ -154,6 +283,12 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
     messagesContainerRef,
     setNewMessage,
     sendMessage,
+    askBot,
+    botLoading,
+    botAlert,
+    clearBotAlert,
+    chatAlert,
+    clearChatAlert,
     isConnected,
   };
 }

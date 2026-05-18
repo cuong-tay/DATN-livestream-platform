@@ -14,7 +14,10 @@ import {
   History,
   RefreshCw,
   ExternalLink,
-  AlertCircle
+  AlertCircle,
+  FileText,
+  Trash2,
+  UploadCloud
 } from "lucide-react";
 import { hasActiveLiveSession, roomService, type RoomDetail, type StreamSession } from "@/shared/api/room.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
@@ -33,10 +36,20 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
-  TabsContent
+  TabsContent,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
 } from "@/shared/ui";
 import { toast } from "sonner";
 import { VideoPlayer } from "@/features/play-stream";
+import { ChatModerationPanel } from "@/features/chat-moderation/ui/ChatModerationPanel";
 import { ChatBoard } from "@/widgets/chat-board";
 import { Link } from "react-router-dom";
 import { useI18n, useI18nFormatters } from "@/shared/i18n";
@@ -104,6 +117,7 @@ export function DashboardPage() {
   // Lịch sử phiên Live (VOD)
   const [sessions, setSessions] = useState<StreamSession[]>([]);
   const [isSessionsLoading, setIsSessionsLoading] = useState(false);
+  const [vodActionSessionId, setVodActionSessionId] = useState<number | null>(null);
   const [stats, setStats] = useState<StatsDashboard | null>(null);
   const [isStatsLoading, setIsStatsLoading] = useState(false);
   const [isRefreshingStudio, setIsRefreshingStudio] = useState(false);
@@ -346,6 +360,38 @@ export function DashboardPage() {
       toast.error(t("dashboard.toast.endFailed", { message: extractApiErrorMessage(error) }));
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleVodAction = async (
+    sessionId: number,
+    action: "deploy" | "draft" | "delete",
+  ) => {
+    setVodActionSessionId(sessionId);
+    try {
+      if (action === "deploy") {
+        await roomService.deployVod(sessionId);
+        toast.success(t("dashboard.toast.deployVodSuccess"));
+      } else if (action === "draft") {
+        await roomService.draftVod(sessionId);
+        toast.success(t("dashboard.toast.draftVodSuccess"));
+      } else {
+        await roomService.deleteVod(sessionId);
+        toast.success(t("dashboard.toast.deleteVodSuccess"));
+      }
+
+      await fetchSessions();
+    } catch (error) {
+      const message = extractApiErrorMessage(error);
+      if (action === "deploy") {
+        toast.error(t("dashboard.toast.deployVodFailed", { message }));
+      } else if (action === "draft") {
+        toast.error(t("dashboard.toast.draftVodFailed", { message }));
+      } else {
+        toast.error(t("dashboard.toast.deleteVodFailed", { message }));
+      }
+    } finally {
+      setVodActionSessionId(null);
     }
   };
 
@@ -607,6 +653,7 @@ export function DashboardPage() {
             </TabsList>
 
             <TabsContent value="settings" className="pt-6">
+              <div className="space-y-6">
               <div className="bg-[#18181b] border border-[#3d3d3d] rounded-xl p-6 shadow-sm flex flex-col md:flex-row gap-8">
                 
                 {/* Left Col: Stream Settings */}
@@ -719,6 +766,8 @@ export function DashboardPage() {
                   </div>
                 </div>
               </div>
+              <ChatModerationPanel roomId={room.roomId} />
+              </div>
             </TabsContent>
 
             <TabsContent value="analytics" className="pt-6">
@@ -824,7 +873,7 @@ export function DashboardPage() {
                                       </div>
                                   </div>
                                </div>
-                               <div>
+                               <div className="flex shrink-0 items-center justify-end">
                                   {s.vodStatus === "DONE" && s.vodUrl ? (
                                       <Button
                                         variant="outline"
@@ -857,6 +906,79 @@ export function DashboardPage() {
                                   ) : s.vodStatus === "UPLOADING" ? (
                                       <div className="text-xs text-blue-400 bg-[#2d2d2d] px-3 py-1.5 rounded-md border border-blue-900 flex items-center gap-1">
                                         <Loader2 className="w-3 h-3 animate-spin" /> {t("dashboard.history.uploading")}
+                                      </div>
+                                  ) : s.vodStatus === "PENDING" || s.vodStatus === "DRAFT" ? (
+                                      <div className="flex flex-col items-end gap-2">
+                                        <div className="flex items-center gap-2">
+                                          {s.vodStatus === "DRAFT" && (
+                                            <span className="text-xs text-amber-300 bg-amber-950/30 px-2 py-1 rounded-md border border-amber-900">
+                                              {t("dashboard.history.draft")}
+                                            </span>
+                                          )}
+                                          <span className="text-xs text-gray-400">
+                                            {t("dashboard.history.vodDecision")}
+                                          </span>
+                                        </div>
+                                        <div className="flex flex-wrap justify-end gap-2">
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="bg-transparent border-green-800 text-green-400 hover:text-white hover:border-green-600"
+                                            disabled={vodActionSessionId === s.id}
+                                            onClick={() => void handleVodAction(s.id, "deploy")}
+                                          >
+                                            {vodActionSessionId === s.id ? (
+                                              <Loader2 className="w-3 h-3 mr-2 animate-spin" />
+                                            ) : (
+                                              <UploadCloud className="w-3 h-3 mr-2" />
+                                            )}
+                                            {t("dashboard.history.deployVod")}
+                                          </Button>
+                                          {s.vodStatus === "PENDING" && (
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="bg-transparent border-[#4d4d4d] text-gray-300 hover:text-white"
+                                              disabled={vodActionSessionId === s.id}
+                                              onClick={() => void handleVodAction(s.id, "draft")}
+                                            >
+                                              <FileText className="w-3 h-3 mr-2" />
+                                              {t("dashboard.history.draftVod")}
+                                            </Button>
+                                          )}
+                                          <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="bg-transparent border-red-800 text-red-400 hover:text-white hover:border-red-600"
+                                                disabled={vodActionSessionId === s.id}
+                                              >
+                                                <Trash2 className="w-3 h-3 mr-2" />
+                                                {t("dashboard.history.deleteVod")}
+                                              </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent className="bg-[#18181b] border-[#3d3d3d] text-white">
+                                              <AlertDialogHeader>
+                                                <AlertDialogTitle>{t("dashboard.deleteVodDialog.title")}</AlertDialogTitle>
+                                                <AlertDialogDescription className="text-gray-400">
+                                                  {t("dashboard.deleteVodDialog.description")}
+                                                </AlertDialogDescription>
+                                              </AlertDialogHeader>
+                                              <AlertDialogFooter>
+                                                <AlertDialogCancel className="border-[#4d4d4d] bg-transparent text-white hover:bg-[#2d2d2d]">
+                                                  {t("actions.cancel")}
+                                                </AlertDialogCancel>
+                                                <AlertDialogAction
+                                                  className="bg-red-600 text-white hover:bg-red-700"
+                                                  onClick={() => void handleVodAction(s.id, "delete")}
+                                                >
+                                                  {t("dashboard.deleteVodDialog.confirm")}
+                                                </AlertDialogAction>
+                                              </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                          </AlertDialog>
+                                        </div>
                                       </div>
                                   ) : (
                                       <div className="text-xs text-gray-500 bg-[#2d2d2d] px-3 py-1.5 rounded-md border border-[#3d3d3d]">{t("dashboard.history.processing")}</div>
