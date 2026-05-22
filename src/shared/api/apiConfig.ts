@@ -1,4 +1,6 @@
 const DEFAULT_API_BASE_URL = "https://api.cuongtay.me/api/v1";
+const DEFAULT_HLS_BASE_URL = "https://api.cuongtay.me/hls";
+const DEFAULT_RTMP_SERVER = "rtmp://rtmp.cuongtay.me/live";
 
 function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, "");
@@ -17,6 +19,11 @@ function normalizeApiBaseUrl(rawValue?: string): string {
   }
 
   return trimTrailingSlashes(parsedUrl.toString());
+}
+
+function normalizeAbsoluteBaseUrl(rawValue: string | undefined, fallbackUrl: string): string {
+  const value = rawValue?.trim() || fallbackUrl;
+  return trimTrailingSlashes(new URL(value).toString());
 }
 
 function buildWsUrl(rawValue: string | undefined, apiBaseUrl: string): string {
@@ -39,7 +46,8 @@ function buildWsUrl(rawValue: string | undefined, apiBaseUrl: string): string {
 function buildSockJsUrl(rawValue: string | undefined, apiBaseUrl: string): string {
   if (rawValue?.trim()) {
     const socketUrl = new URL(trimTrailingSlashes(rawValue.trim()));
-    socketUrl.protocol = socketUrl.protocol === "wss:" ? "https:" : "http:";
+    socketUrl.protocol =
+      socketUrl.protocol === "https:" || socketUrl.protocol === "wss:" ? "https:" : "http:";
     return trimTrailingSlashes(socketUrl.toString());
   }
 
@@ -74,6 +82,8 @@ function normalizeFormFieldName(rawValue: string | undefined, fallbackField: str
 export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 export const WS_URL = buildWsUrl(import.meta.env.VITE_WS_URL, API_BASE_URL);
 export const SOCKJS_URL = buildSockJsUrl(import.meta.env.VITE_WS_URL, API_BASE_URL);
+export const HLS_BASE_URL = normalizeAbsoluteBaseUrl(import.meta.env.VITE_HLS_BASE_URL, DEFAULT_HLS_BASE_URL);
+export const RTMP_SERVER = normalizeAbsoluteBaseUrl(import.meta.env.VITE_RTMP_SERVER, DEFAULT_RTMP_SERVER);
 export const AVATAR_UPLOAD_ENDPOINT = normalizeApiEndpoint(
   import.meta.env.VITE_AVATAR_UPLOAD_ENDPOINT,
   "/auth/me/avatar",

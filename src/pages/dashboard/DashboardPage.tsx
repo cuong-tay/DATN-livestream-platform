@@ -20,6 +20,7 @@ import {
   UploadCloud
 } from "lucide-react";
 import { hasActiveLiveSession, roomService, type RoomDetail, type StreamSession } from "@/shared/api/room.service";
+import { RTMP_SERVER } from "@/shared/api/apiConfig";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { statisticsService, type StatsDashboard } from "@/shared/api/statistics.service";
 import { useStreamContext } from "@/app/providers/StreamContext";
@@ -722,8 +723,8 @@ export function DashboardPage() {
                       {t("dashboard.connection.serverUrl")}
                     </Label>
                     <div className="flex gap-2">
-                      <Input readOnly value="rtmp://localhost:1935/live" className="font-mono text-sm bg-black border-[#4d4d4d]" />
-                      <Button variant="secondary" size="icon" className="bg-[#3d3d3d] hover:bg-[#4d4d4d] text-white shrink-0" onClick={() => copyToClipboard("rtmp://localhost:1935/live")}>
+                      <Input readOnly value={RTMP_SERVER} className="font-mono text-sm bg-black border-[#4d4d4d]" />
+                      <Button variant="secondary" size="icon" className="bg-[#3d3d3d] hover:bg-[#4d4d4d] text-white shrink-0" onClick={() => copyToClipboard(RTMP_SERVER)}>
                         <Copy className="w-4 h-4" />
                       </Button>
                     </div>
