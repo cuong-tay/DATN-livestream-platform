@@ -5,7 +5,7 @@ import { VideoPlayer, useWatchRoom } from "@/features/play-stream";
 import { ChatBoard } from "@/widgets/chat-board";
 import { DonateModal } from "@/features/donate";
 import { ReportModal } from "@/features/report";
-import { RoomReactionPill, SessionReactionPill } from "@/features/reactions";
+import { SessionReactionPill } from "@/features/reactions";
 import { hasActiveLiveSession, roomService, type RoomDetail } from "@/shared/api/room.service";
 import { followService } from "@/shared/api/follow.service";
 import { useAuth } from "@/app/providers/AuthContext";
@@ -283,10 +283,8 @@ export function StreamPage() {
 
             {/* Actions */}
             <div className="p-4 flex flex-wrap items-center gap-2">
-              {room.activeSessionId ? (
+              {room.activeSessionId && (
                 <SessionReactionPill sessionId={room.activeSessionId} />
-              ) : (
-                <RoomReactionPill roomId={roomId} />
               )}
               <button className="flex items-center gap-2 px-4 py-2 bg-[#2d2d31] hover:bg-[#3d3d41] rounded-full transition">
                 <Share2 className="w-4 h-4" />

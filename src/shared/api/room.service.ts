@@ -174,15 +174,19 @@ export const roomService = {
   /** GET /rooms/me — phòng/channel cố định của tôi (JWT). Fallback về /rooms/me/all nếu backend cũ. */
   getMyRoom: async () => {
     try {
-      return await httpClient.get<RoomDetail>("/rooms/me");
+      return await httpClient.get<RoomDetail>("/rooms/me", { skipErrorLog: true });
     } catch (error) {
       if (!hasHttpStatus(error, 404) && !hasHttpStatus(error, 405)) {
         throw error;
       }
 
-      const response = await httpClient.get<PaginatedResponse<RoomLiveItem>>("/rooms/me/all", {
-        params: { page: 0, size: 50 },
-      });
+      const response = await httpClient.get<PaginatedResponse<RoomLiveItem>>(
+        "/rooms/me/all",
+        {
+          params: { page: 0, size: 50 },
+          skipErrorLog: true,
+        },
+      );
       const preferredRoom = pickPreferredRoom(response.data.content);
       return buildSyntheticResponse<RoomDetail | null>(preferredRoom ? { ...preferredRoom } : null);
     }

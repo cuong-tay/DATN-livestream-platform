@@ -21,7 +21,9 @@ export const notificationService = {
     httpClient.get<PaginatedResponse<NotificationItem>>("/notifications", { params }),
 
   getUnreadCount: () =>
-    httpClient.get<{ unreadCount: number }>("/notifications/unread-count"),
+    httpClient.get<{ unreadCount: number }>("/notifications/unread-count", {
+      skipErrorLog: true,
+    }),
 
   markAsRead: (notificationId: number) =>
     httpClient.put(`/notifications/${notificationId}/read`),

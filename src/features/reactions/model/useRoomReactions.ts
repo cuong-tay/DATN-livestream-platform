@@ -11,6 +11,7 @@ import {
   onStompConnectionChange,
   subscribeToTopic,
 } from "@/shared/lib/stompClient";
+import { hasHttpStatus } from "@/shared/api/httpClient";
 
 interface ReactionStateData {
   counts: ReactionCountResponse | null;
@@ -88,6 +89,20 @@ export function useRoomReactions(roomId: number | null): UseReactionResult {
     try {
       const response = await reactionService.getRoomCounts(roomId);
       setState((prev) => applyCountResponse(prev, response.data));
+    } catch (error) {
+      if (!hasHttpStatus(error, 409)) {
+        throw error;
+      }
+
+      setState((prev) => ({
+        ...prev,
+        counts: {
+          roomId,
+          sessionId: prev.counts?.sessionId ?? 0,
+          likeCount: prev.counts?.likeCount ?? 0,
+          dislikeCount: prev.counts?.dislikeCount ?? 0,
+        },
+      }));
     } finally {
       setIsLoading(false);
     }
@@ -95,7 +110,7 @@ export function useRoomReactions(roomId: number | null): UseReactionResult {
 
   useEffect(() => {
     setState({ counts: null, currentReaction: null });
-    void refresh();
+    void refresh().catch(() => {});
   }, [refresh, roomId]);
 
   useEffect(() => {
@@ -187,6 +202,20 @@ export function useSessionReactions(sessionId: number | null): UseReactionResult
     try {
       const response = await reactionService.getSessionCounts(sessionId);
       setState((prev) => applyCountResponse(prev, response.data));
+    } catch (error) {
+      if (!hasHttpStatus(error, 409)) {
+        throw error;
+      }
+
+      setState((prev) => ({
+        ...prev,
+        counts: {
+          roomId: prev.counts?.roomId ?? 0,
+          sessionId,
+          likeCount: prev.counts?.likeCount ?? 0,
+          dislikeCount: prev.counts?.dislikeCount ?? 0,
+        },
+      }));
     } finally {
       setIsLoading(false);
     }
@@ -194,7 +223,7 @@ export function useSessionReactions(sessionId: number | null): UseReactionResult
 
   useEffect(() => {
     setState({ counts: null, currentReaction: null });
-    void refresh();
+    void refresh().catch(() => {});
   }, [refresh, sessionId]);
 
   const toggleLike = useCallback(async () => {

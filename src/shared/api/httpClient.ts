@@ -7,6 +7,7 @@ import { API_BASE_URL } from "./apiConfig";
 declare module "axios" {
   interface AxiosRequestConfig {
     skipAuth?: boolean;
+    skipErrorLog?: boolean;
   }
 }
 
@@ -141,17 +142,19 @@ httpClient.interceptors.response.use(
       ? Date.now() - timedConfig.metadata.requestStartedAt
       : undefined;
 
-    console.error("[httpClient] request failed", {
-      method: axiosError.config?.method,
-      url: axiosError.config?.baseURL
-        ? `${axiosError.config.baseURL}${axiosError.config.url || ""}`
-        : axiosError.config?.url,
-      status: axiosError.response?.status,
-      code: axiosError.code,
-      message: extractApiErrorMessage(error),
-      response: axiosError.response?.data,
-      elapsedMs,
-    });
+    if (!axiosError.config?.skipErrorLog) {
+      console.error("[httpClient] request failed", {
+        method: axiosError.config?.method,
+        url: axiosError.config?.baseURL
+          ? `${axiosError.config.baseURL}${axiosError.config.url || ""}`
+          : axiosError.config?.url,
+        status: axiosError.response?.status,
+        code: axiosError.code,
+        message: extractApiErrorMessage(error),
+        response: axiosError.response?.data,
+        elapsedMs,
+      });
+    }
 
     if (
       DEBUG_VOD_API &&
