@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  assistantService,
-  type AssistantCitation,
-  type AssistantContext,
-} from "@/shared/api/assistant.service";
+import { assistantService, type AssistantContext } from "@/shared/api/assistant.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 
 export interface VideoAssistantMessage {
@@ -11,7 +7,6 @@ export interface VideoAssistantMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: Date;
-  citations?: AssistantCitation[];
   requestId?: string;
 }
 
@@ -20,6 +15,68 @@ interface UseVideoAssistantOptions {
   sessionId: number;
   videoId: number;
   getCurrentTimeSeconds?: () => number;
+}
+
+const SOURCE_HEADING_PATTERN =
+  /^\s*(?:nguồn(?:\s+tham\s+khảo)?|nguon(?:\s+tham\s+khao)?|sources?|references?|fuentes?)\s*:?\s*$/iu;
+const SOURCE_HEADING_WITH_CONTENT_PATTERN =
+  /^\s*(?:nguồn(?:\s+tham\s+khảo)?|nguon(?:\s+tham\s+khao)?|sources?|references?|fuentes?)\s*[:：]\s*\S+/iu;
+const SOURCE_ITEM_PATTERN =
+  /^\s*(?:[-*]\s*)?(?:nguồn|nguon|source|reference|fuente)\s*(?:\[\d+\]|\d+)?\s*[:.)-]\s+\S+/iu;
+const NUMBERED_SOURCE_ITEM_PATTERN = /^\s*(?:[-*]\s*)?(?:\[\d+\]|\d+[\).:-])\s+\S+/u;
+const URL_PATTERN = /^\s*https?:\/\//iu;
+
+function isSourceTailLine(line: string): boolean {
+  return (
+    SOURCE_ITEM_PATTERN.test(line) ||
+    NUMBERED_SOURCE_ITEM_PATTERN.test(line) ||
+    URL_PATTERN.test(line)
+  );
+}
+
+function stripAssistantSourceReferences(rawAnswer: string): string {
+  const answer = rawAnswer
+    .replace(/\s*\[(?:\d+(?:\s*,\s*\d+)*)\]/g, "")
+    .replace(/\s*\((?:nguồn|nguon|source|reference|fuente)\s*\d+\)/giu, "")
+    .trim();
+
+  const lines = answer.split(/\r?\n/);
+  const sourceSectionIndex = lines.findIndex((line, index) => {
+    const isSourceHeading =
+      SOURCE_HEADING_PATTERN.test(line) || SOURCE_HEADING_WITH_CONTENT_PATTERN.test(line);
+    if (!isSourceHeading) return false;
+
+    const tailLines = lines.slice(index + 1).filter((tailLine) => tailLine.trim().length > 0);
+    return tailLines.length === 0 || tailLines.every(isSourceTailLine);
+  });
+
+  if (sourceSectionIndex > -1) {
+    return lines.slice(0, sourceSectionIndex).join("\n").trim();
+  }
+
+  let sourceBlockStart = lines.length;
+  let hasSourceItem = false;
+
+  while (sourceBlockStart > 0) {
+    const previousLine = lines[sourceBlockStart - 1];
+    if (previousLine.trim().length === 0) {
+      sourceBlockStart -= 1;
+      continue;
+    }
+
+    if (!SOURCE_ITEM_PATTERN.test(previousLine)) {
+      break;
+    }
+
+    hasSourceItem = true;
+    sourceBlockStart -= 1;
+  }
+
+  if (hasSourceItem) {
+    return lines.slice(0, sourceBlockStart).join("\n").trim();
+  }
+
+  return answer;
 }
 
 export function useVideoAssistant({
@@ -87,7 +144,7 @@ export function useVideoAssistant({
           context,
         });
 
-        const answer = response.data.answer?.trim();
+        const answer = stripAssistantSourceReferences(response.data.answer ?? "");
         if (!answer) {
           setError("AI did not return an answer for this video.");
           return false;
@@ -98,7 +155,6 @@ export function useVideoAssistant({
           role: "assistant",
           content: answer,
           createdAt: new Date(),
-          citations: response.data.citations,
           requestId: response.data.requestId,
         };
 

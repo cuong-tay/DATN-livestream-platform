@@ -165,20 +165,6 @@ export function VideoAssistantPanel({
                   </div>
                 )}
                 <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                {message.role === "assistant" &&
-                  message.citations &&
-                  message.citations.length > 0 && (
-                    <div className="mt-3 space-y-1 border-t border-cyan-500/20 pt-2">
-                      {message.citations.map((citation, index) => (
-                        <div
-                          key={`${message.id}-${citation.type ?? "source"}-${citation.id ?? index}`}
-                          className="rounded bg-black/20 px-2 py-1 text-xs text-cyan-100/80"
-                        >
-                          {citation.title || citation.type || t("vod.assistant.sourceFallback", { count: index + 1 })}
-                        </div>
-                      ))}
-                    </div>
-                  )}
               </div>
             ))}
             {isAsking && (

@@ -12,6 +12,8 @@ import { useAuth } from "@/app/providers/AuthContext";
 import { hasHttpStatus } from "@/shared/api/httpClient";
 import { useI18n } from "@/shared/i18n";
 
+const DESKTOP_CHAT_MEDIA_QUERY = "(min-width: 1024px)";
+
 export function StreamPage() {
   const { streamId } = useParams();
   const roomId = streamId ? Number(streamId) : null;
@@ -28,6 +30,11 @@ export function StreamPage() {
 
   const [isDonateOpen, setIsDonateOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
+  const [isDesktopChatLayout, setIsDesktopChatLayout] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia(DESKTOP_CHAT_MEDIA_QUERY).matches
+      : false,
+  );
 
   const isLive = hasActiveLiveSession(room);
   const isEnded = room?.status === "ENDED";
@@ -41,6 +48,15 @@ export function StreamPage() {
     isLive ? room?.hlsUrl : null,
     videoRef,
   );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(DESKTOP_CHAT_MEDIA_QUERY);
+    const syncChatLayout = () => setIsDesktopChatLayout(mediaQuery.matches);
+
+    syncChatLayout();
+    mediaQuery.addEventListener("change", syncChatLayout);
+    return () => mediaQuery.removeEventListener("change", syncChatLayout);
+  }, []);
 
   // â”€â”€ Fetch room details â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
@@ -288,13 +304,17 @@ export function StreamPage() {
 
           {/* â”€â”€ Chat (desktop) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div className="h-[calc(100vh-var(--app-header-offset))] sticky top-[var(--app-header-offset)] hidden lg:block">
-            <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
+            {isDesktopChatLayout && (
+              <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
+            )}
           </div>
         </div>
 
         {/* Chat (mobile) */}
         <div className="lg:hidden border-t border-[#2d2d31] h-[500px]">
-          <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
+          {!isDesktopChatLayout && (
+            <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
+          )}
         </div>
       </div>
 

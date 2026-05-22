@@ -254,6 +254,8 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
           userId: user?.userId,
           senderName: user?.username || "Anonymous",
           question: trimmedQuestion,
+          content: trimmedQuestion,
+          message: trimmedQuestion,
         }),
       );
 
