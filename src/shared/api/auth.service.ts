@@ -110,15 +110,15 @@ export interface ApiError {
 export const authService = {
   /** POST /auth/login */
   login: (data: LoginRequest) =>
-    httpClient.post<AuthResponse>("/auth/login", data),
+    httpClient.post<AuthResponse>("/auth/login", data, { skipAuth: true }),
 
   /** POST /auth/register */
   register: (data: RegisterRequest) =>
-    httpClient.post<AuthResponse>("/auth/register", data),
+    httpClient.post<AuthResponse>("/auth/register", data, { skipAuth: true }),
 
   /** POST /auth/google */
   loginWithGoogle: (data: GoogleLoginRequest) =>
-    httpClient.post<AuthResponse>("/auth/google", data),
+    httpClient.post<AuthResponse>("/auth/google", data, { skipAuth: true }),
 
   /** POST multipart avatar upload endpoint (JWT) */
   uploadAvatar: async (file: File, options?: UploadAvatarOptions): Promise<UserResponse> => {

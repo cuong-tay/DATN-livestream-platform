@@ -18,10 +18,10 @@ export interface UpsertCategoryRequest {
 
 export const categoryService = {
   /** GET /categories — danh sách tất cả danh mục (public) */
-  getAll: () => httpClient.get<CategoryItem[]>("/categories"),
+  getAll: () => httpClient.get<CategoryItem[]>("/categories", { skipAuth: true }),
 
   /** GET /categories/{id} — chi tiết danh mục (public) */
-  getById: (id: number) => httpClient.get<CategoryItem>(`/categories/${id}`),
+  getById: (id: number) => httpClient.get<CategoryItem>(`/categories/${id}`, { skipAuth: true }),
 
   /** POST /categories — tạo danh mục mới (JWT ADMIN) */
   create: (data: UpsertCategoryRequest) => httpClient.post<CategoryItem>("/categories", data),

@@ -165,11 +165,11 @@ export interface UpsertBlockedWordRequest {
 export const roomService = {
   /** GET /rooms/live — danh sách phòng đang LIVE (public) */
   getLiveRooms: (params?: { categoryId?: number; page?: number; size?: number }) =>
-    httpClient.get<PaginatedResponse<RoomLiveItem>>("/rooms/live", { params }),
+    httpClient.get<PaginatedResponse<RoomLiveItem>>("/rooms/live", { params, skipAuth: true }),
 
   /** GET /rooms/{roomId} — chi tiết một phòng (public) */
   getRoomById: (roomId: number) =>
-    httpClient.get<RoomDetail>(`/rooms/${roomId}`),
+    httpClient.get<RoomDetail>(`/rooms/${roomId}`, { skipAuth: true }),
 
   /** GET /rooms/me — phòng/channel cố định của tôi (JWT). Fallback về /rooms/me/all nếu backend cũ. */
   getMyRoom: async () => {
@@ -235,7 +235,7 @@ export const roomService = {
 
   /** GET /rooms/{roomId}/sessions — lịch sử session (public) */
   getRoomSessions: (roomId: number, params?: { page?: number; size?: number }) =>
-    httpClient.get<PaginatedResponse<StreamSession>>(`/rooms/${roomId}/sessions`, { params }),
+    httpClient.get<PaginatedResponse<StreamSession>>(`/rooms/${roomId}/sessions`, { params, skipAuth: true }),
 
   /** GET /vods — danh sách VOD public (public) */
   getPublicVods: (params?: {
@@ -260,15 +260,15 @@ export const roomService = {
 
   /** GET /sessions/{sessionId} — chi tiết một session (public) */
   getSessionById: (sessionId: number) =>
-    httpClient.get<StreamSession>(`/sessions/${sessionId}`),
+    httpClient.get<StreamSession>(`/sessions/${sessionId}`, { skipAuth: true }),
 
   /** GET /sessions/{sessionId}/chats — lấy toàn bộ chat của session (public) */
   getSessionChats: (sessionId: number) =>
-    httpClient.get<ChatMessageResponse[]>(`/sessions/${sessionId}/chats`),
+    httpClient.get<ChatMessageResponse[]>(`/sessions/${sessionId}/chats`, { skipAuth: true }),
 
   /** GET /rooms/{roomId}/chats — lịch sử chat 50 tin gần nhất (public) */
   getChatHistory: (roomId: number) =>
-    httpClient.get<ChatMessageResponse[]>(`/rooms/${roomId}/chats`),
+    httpClient.get<ChatMessageResponse[]>(`/rooms/${roomId}/chats`, { skipAuth: true }),
 
   /** GET /rooms/{roomId}/blocked-words - streamer JWT */
   getBlockedWords: (roomId: number) =>
