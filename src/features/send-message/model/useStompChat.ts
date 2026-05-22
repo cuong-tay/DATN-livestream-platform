@@ -37,6 +37,8 @@ type ChatWirePayload = Partial<ChatMessageResponse> & {
   message?: string;
 };
 
+const LOCAL_MESSAGE_TTL_MS = 10_000;
+
 /** Pick a random chat colour for incoming messages */
 function randomColor(): string {
   return CHAT_COLORS[Math.floor(Math.random() * CHAT_COLORS.length)];
@@ -48,6 +50,31 @@ function normalizeMessageType(messageType?: string, fallback?: string): string |
 
 function readMessageText(payload: ChatWirePayload): string {
   return payload.content ?? payload.answer ?? payload.message ?? "";
+}
+
+function appendMessageWithLocalEchoDedupe(
+  currentMessages: ChatMessage[],
+  incomingMessage: ChatMessage,
+): ChatMessage[] {
+  const incomingText = incomingMessage.message.trim();
+  const incomingUsername = incomingMessage.username.trim();
+  const incomingTime = incomingMessage.timestamp.getTime();
+
+  const matchingLocalIndex = currentMessages.findIndex((message) => {
+    if (!message.id.startsWith("local-")) return false;
+    if (message.message.trim() !== incomingText) return false;
+    if (message.username.trim() !== incomingUsername) return false;
+
+    return Math.abs(incomingTime - message.timestamp.getTime()) <= LOCAL_MESSAGE_TTL_MS;
+  });
+
+  if (matchingLocalIndex === -1) {
+    return [...currentMessages.slice(-(CHAT_MAX_MESSAGES - 1)), incomingMessage];
+  }
+
+  const nextMessages = [...currentMessages];
+  nextMessages[matchingLocalIndex] = incomingMessage;
+  return nextMessages.slice(-CHAT_MAX_MESSAGES);
 }
 
 /** Map a REST history message to the UI ChatMessage shape */
@@ -159,7 +186,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
           setBotLoading(false);
         }
         if (!incoming.message.trim()) return;
-        setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), incoming]);
+        setMessages((prev) => appendMessageWithLocalEchoDedupe(prev, incoming));
       } catch {
         // Malformed message — skip
       }
@@ -175,7 +202,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
         const incoming = mapIncomingMessage(payload, nextId(), "BOT");
         setBotLoading(false);
         if (!incoming.message.trim()) return;
-        setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), incoming]);
+        setMessages((prev) => appendMessageWithLocalEchoDedupe(prev, incoming));
       } catch {
         // Malformed private bot reply - skip
         setBotLoading(false);
@@ -219,6 +246,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       if (!newMessage.trim() || !roomId || !isConnected) return;
 
       const senderName = user?.username || "Anonymous";
+      const content = newMessage.trim();
       setChatAlert(null);
 
       const didPublish = publishMessage(
@@ -228,12 +256,25 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
           sessionId: sessionId ?? undefined,
           userId: user?.userId,
           senderName,
-          content: newMessage.trim(),
+          content,
         }),
       );
 
       if (!didPublish) {
         return;
+      }
+
+      if (!sessionId) {
+        const localMessage: ChatMessage = {
+          id: `local-${nextId()}`,
+          username: senderName,
+          message: content,
+          timestamp: new Date(),
+          color: CHAT_COLORS[0],
+          messageType: "CHAT",
+        };
+
+        setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), localMessage]);
       }
 
       setNewMessage("");
