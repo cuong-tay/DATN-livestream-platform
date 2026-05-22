@@ -5,6 +5,7 @@ import { roomService, type ChatMessageResponse } from "@/shared/api/room.service
 import { CHAT_COLORS, CHAT_MAX_MESSAGES } from "@/shared/lib/constants";
 import { useAuth } from "@/app/providers/AuthContext";
 import {
+  ensureStompConnection,
   getStompConnectionState,
   onStompConnectionChange,
   publishMessage,
@@ -38,6 +39,12 @@ type ChatWirePayload = Partial<ChatMessageResponse> & {
 };
 
 const LOCAL_MESSAGE_TTL_MS = 10_000;
+
+interface PendingChatPublish {
+  body: string;
+  localMessage?: ChatMessage;
+  localEchoAdded: boolean;
+}
 
 /** Pick a random chat colour for incoming messages */
 function randomColor(): string {
@@ -140,6 +147,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   );
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const seqRef = useRef(0);
+  const pendingChatPublishesRef = useRef<PendingChatPublish[]>([]);
 
   const nextId = () => {
     seqRef.current += 1;
@@ -174,6 +182,28 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!isConnected || pendingChatPublishesRef.current.length === 0) return;
+
+    const queuedPublishes = pendingChatPublishesRef.current;
+    pendingChatPublishesRef.current = [];
+
+    for (const queuedPublish of queuedPublishes) {
+      const didPublish = publishMessage("/app/chat.sendMessage", queuedPublish.body);
+      if (!didPublish) {
+        pendingChatPublishesRef.current.push(queuedPublish);
+        ensureStompConnection();
+        continue;
+      }
+
+      if (queuedPublish.localMessage && !queuedPublish.localEchoAdded) {
+        setMessages((prev) =>
+          appendMessageWithLocalEchoDedupe(prev, queuedPublish.localMessage!),
+        );
+      }
+    }
+  }, [isConnected]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -243,43 +273,56 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   const sendMessage = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      if (!newMessage.trim() || !roomId || !isConnected) return;
+      if (!newMessage.trim() || !roomId) return;
 
       const senderName = user?.username || "Anonymous";
       const content = newMessage.trim();
+      const localMessage: ChatMessage | undefined = !sessionId
+        ? {
+            id: `local-${nextId()}`,
+            username: senderName,
+            message: content,
+            timestamp: new Date(),
+            color: CHAT_COLORS[0],
+            messageType: "CHAT",
+          }
+        : undefined;
       setChatAlert(null);
 
-      const didPublish = publishMessage(
-        "/app/chat.sendMessage",
-        JSON.stringify({
-          roomId,
-          sessionId: sessionId ?? undefined,
-          userId: user?.userId,
-          senderName,
-          content,
-        }),
-      );
+      const body = JSON.stringify({
+        roomId,
+        sessionId: sessionId ?? undefined,
+        userId: user?.userId,
+        senderName,
+        content,
+      });
+
+      const didPublish = publishMessage("/app/chat.sendMessage", body);
 
       if (!didPublish) {
+        const localEchoAdded = Boolean(localMessage);
+
+        if (localMessage) {
+          setMessages((prev) => appendMessageWithLocalEchoDedupe(prev, localMessage));
+        }
+
+        pendingChatPublishesRef.current.push({
+          body,
+          localMessage,
+          localEchoAdded,
+        });
+        ensureStompConnection();
+        setNewMessage("");
         return;
       }
 
-      if (!sessionId) {
-        const localMessage: ChatMessage = {
-          id: `local-${nextId()}`,
-          username: senderName,
-          message: content,
-          timestamp: new Date(),
-          color: CHAT_COLORS[0],
-          messageType: "CHAT",
-        };
-
-        setMessages((prev) => [...prev.slice(-(CHAT_MAX_MESSAGES - 1)), localMessage]);
+      if (localMessage) {
+        setMessages((prev) => appendMessageWithLocalEchoDedupe(prev, localMessage));
       }
 
       setNewMessage("");
     },
-    [newMessage, roomId, sessionId, user, isConnected],
+    [newMessage, roomId, sessionId, user],
   );
 
   const askBot = useCallback(

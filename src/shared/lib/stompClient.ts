@@ -93,6 +93,20 @@ export function onStompConnectionChange(listener: ConnectionListener) {
   };
 }
 
+export function ensureStompConnection() {
+  const activeClient = ensureClient();
+
+  if (disconnectTimer) {
+    clearTimeout(disconnectTimer);
+    disconnectTimer = null;
+  }
+
+  if (!activeClient.active) {
+    setConnectionState("connecting");
+    activeClient.activate();
+  }
+}
+
 export function subscribeToTopic(destination: string, handler: SubscribeHandler) {
   const activeClient = ensureClient();
   activeSubscriptions += 1;
@@ -137,6 +151,7 @@ export function subscribeToTopic(destination: string, handler: SubscribeHandler)
 
 export function publishMessage(destination: string, body: string): boolean {
   if (!client?.connected) {
+    ensureStompConnection();
     return false;
   }
 

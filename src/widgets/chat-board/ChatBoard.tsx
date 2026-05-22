@@ -124,7 +124,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
   }, [isEmojiPickerOpen]);
 
   const isBotSubmit = isBotMode || BOT_PREFIX_PATTERN.test(newMessage);
-  const isSubmitDisabled = !isConnected || !newMessage.trim() || (isBotSubmit && botLoading);
+  const isSubmitDisabled = !roomId || !newMessage.trim() || (isBotSubmit && (!isConnected || botLoading));
 
   return (
     <div className="flex flex-col h-full bg-[#18181b]">
@@ -275,7 +275,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
                     : t("chat.placeholder")
                   : t("chat.connecting")
               }
-              disabled={!isConnected}
+              disabled={!roomId}
               className={`w-full bg-[#2d2d31] border rounded px-3 py-2 pr-20 focus:outline-none text-sm disabled:opacity-50 ${
                 isBotMode
                   ? "border-cyan-500/60 focus:border-cyan-400"
