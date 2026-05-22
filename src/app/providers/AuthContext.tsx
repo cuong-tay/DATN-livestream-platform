@@ -78,6 +78,21 @@ function mapAuthResponseToUser(res: AuthResponse): UserProfile {
   };
 }
 
+function isJwtExpired(token: string): boolean {
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) return true;
+
+    const normalizedPayload = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decodedPayload = JSON.parse(atob(normalizedPayload)) as { exp?: number };
+    if (!decodedPayload.exp) return false;
+
+    return decodedPayload.exp * 1000 <= Date.now();
+  } catch {
+    return true;
+  }
+}
+
 // ── Provider ─────────────────────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -90,6 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const token = localStorage.getItem("accessToken");
       const stored = localStorage.getItem("authUser");
       if (token && stored) {
+        if (isJwtExpired(token)) {
+          localStorage.removeItem("accessToken");
+          localStorage.removeItem("refreshToken");
+          localStorage.removeItem("authUser");
+          return;
+        }
+
         const parsed = JSON.parse(stored) as UserProfile;
         setUser(parsed);
       }
