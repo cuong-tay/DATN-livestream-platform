@@ -153,11 +153,11 @@ export function StreamPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-[#0f0f10]">
+    <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-[1920px] mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-0">
           {/* â”€â”€ Main content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-          <div className="border-zinc-200 lg:border-r">
+          <div className="border-border lg:border-r">
             {/* Player */}
             <div className="bg-black">
               {isEnded ? (
@@ -208,7 +208,7 @@ export function StreamPage() {
             </div>
 
             {/* Stream info */}
-            <div className="border-b border-zinc-200 p-4">
+            <div className="border-b border-border p-4">
               <div className="flex items-start gap-3 mb-4">
                 <div className="w-12 h-12 rounded-full bg-purple-600 flex items-center justify-center flex-shrink-0">
                   {room.streamerAvatarUrl ? (
@@ -240,10 +240,10 @@ export function StreamPage() {
                   <button
                     onClick={handleFollowToggle}
                     disabled={!isAuthenticated || followLoading}
-                    className={`flex items-center gap-2 rounded px-6 py-2 font-semibold text-white transition disabled:opacity-70 ${
+                    className={`flex items-center gap-2 rounded px-6 py-2 font-semibold transition disabled:opacity-70 ${
                       isFollowing
-                        ? "bg-[#2d2d31] hover:bg-[#3d3d41]"
-                        : "bg-purple-600 hover:bg-purple-700"
+                        ? "bg-muted text-foreground hover:bg-accent"
+                        : "bg-purple-600 text-white hover:bg-purple-700"
                     }`}
                   >
                     {followLoading ? (
@@ -261,11 +261,11 @@ export function StreamPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3 text-sm">
-                <span className="rounded bg-[#2d2d31] px-2 py-1 text-white">
+                <span className="rounded bg-muted px-2 py-1 text-foreground">
                   {room.categoryName}
                 </span>
                 {isLive && (
-                  <div className="flex items-center gap-1 text-zinc-500">
+                  <div className="flex items-center gap-1 text-muted-foreground">
                     <Users className="w-4 h-4" />
                     {t("stream.live")}
                   </div>
@@ -274,7 +274,7 @@ export function StreamPage() {
             </div>
 
             {/* About */}
-            <div className="border-b border-zinc-200 p-4">
+            <div className="border-b border-border p-4">
               <button className="w-full flex items-center justify-between text-left">
                 <h3 className="font-semibold">{t("stream.about")}</h3>
                 <ChevronDown className="w-4 h-4" />
@@ -286,13 +286,13 @@ export function StreamPage() {
               {room.activeSessionId && (
                 <SessionReactionPill sessionId={room.activeSessionId} />
               )}
-              <button className="flex items-center gap-2 rounded-full bg-[#2d2d31] px-4 py-2 text-white transition hover:bg-[#3d3d41]">
+              <button className="flex items-center gap-2 rounded-full bg-muted px-4 py-2 text-foreground transition hover:bg-accent">
                 <Share2 className="w-4 h-4" />
                 {t("stream.share")}
               </button>
               <button 
                 onClick={() => setIsReportOpen(true)}
-                className="flex items-center gap-2 rounded-full bg-[#2d2d31] px-4 py-2 text-red-400 transition hover:bg-[#3d3d41] hover:text-red-300"
+                className="flex items-center gap-2 rounded-full bg-red-500/10 px-4 py-2 text-red-700 transition hover:bg-red-500/20 dark:text-red-300"
               >
                 <Flag className="w-4 h-4" />
                 {t("stream.report")}
@@ -309,7 +309,7 @@ export function StreamPage() {
         </div>
 
         {/* Chat (mobile) */}
-        <div className="h-[500px] border-t border-zinc-200 lg:hidden">
+        <div className="h-[500px] border-t border-border lg:hidden">
           {!isDesktopChatLayout && (
             <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
           )}

@@ -131,9 +131,9 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
   const isSubmitDisabled = isInputDisabled || !newMessage.trim() || (isBotSubmit && botLoading);
 
   return (
-    <div className="flex h-full flex-col bg-[#18181b] text-gray-100">
+    <div className="flex h-full flex-col bg-chat text-chat-foreground">
       {/* Header */}
-      <div className="border-b border-[#2d2d31] p-3">
+      <div className="border-b border-chat-border p-3">
         <div className="flex items-center justify-between">
           <h3 className="flex items-center gap-2 font-semibold text-gray-100">
             {t("chat.title")}
@@ -148,7 +148,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
               </span>
             )}
           </h3>
-          <button className="rounded p-1 text-gray-400 transition hover:bg-[#2d2d31] hover:text-white">
+          <button className="rounded p-1 text-gray-400 transition hover:bg-chat-muted hover:text-white">
             <MoreVertical className="w-4 h-4" />
           </button>
         </div>
@@ -204,11 +204,11 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
               {isStreamer && !isBotMessage && msg.username !== user?.username && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button className="mt-0.5 rounded p-1 text-gray-400 opacity-0 transition hover:bg-[#2d2d31] hover:text-white group-hover:opacity-100">
+                    <button className="mt-0.5 rounded p-1 text-gray-400 opacity-0 transition hover:bg-chat-muted hover:text-white group-hover:opacity-100">
                       <MoreVertical className="w-3 h-3" />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="bg-[#18181b] border-[#2d2d31] text-white">
+                  <DropdownMenuContent align="end" className="border-chat-border bg-chat text-chat-foreground">
                     <DropdownMenuItem
                       onClick={() => handleBanUser(msg.username)}
                       className="text-red-400 focus:text-red-300 focus:bg-red-500/10 cursor-pointer text-xs"
@@ -233,11 +233,11 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
       </div>
 
       {/* Input */}
-      <div className="relative border-t border-[#2d2d31] p-3">
+      <div className="relative border-t border-chat-border p-3">
         {isEmojiPickerOpen && (
           <div
             ref={emojiPickerRef}
-            className="absolute bottom-[68px] right-3 z-50 max-h-[360px] w-[min(360px,calc(100%-24px))] overflow-y-auto rounded border border-[#464649] bg-[#202024] p-2 text-gray-100 shadow-2xl"
+            className="absolute bottom-[68px] right-3 z-50 max-h-[360px] w-[min(360px,calc(100%-24px))] overflow-y-auto rounded border border-chat-border bg-chat-muted p-2 text-chat-foreground shadow-2xl"
           >
             {EMOJI_GROUPS.map((group) => (
               <div key={group.label} className="mb-2 last:mb-0">
@@ -250,7 +250,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
                       key={`${group.label}-${emoji}`}
                       type="button"
                       onClick={() => appendEmoji(emoji)}
-                      className="flex h-8 w-8 items-center justify-center rounded text-lg text-gray-100 transition hover:bg-[#34343a]"
+                      className="flex h-8 w-8 items-center justify-center rounded text-lg text-chat-foreground transition hover:bg-chat-border"
                       aria-label={`Emoji ${emoji}`}
                     >
                       {emoji}
@@ -293,10 +293,10 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
                   : t("chat.connecting")
               }
               disabled={isInputDisabled}
-              className={`w-full rounded border bg-[#2d2d31] px-3 py-2 pr-20 text-sm text-gray-100 placeholder:text-gray-400 focus:outline-none disabled:text-gray-300 disabled:opacity-75 ${
+              className={`w-full rounded border bg-chat-muted px-3 py-2 pr-20 text-sm text-chat-foreground placeholder:text-gray-400 focus:outline-none disabled:text-gray-300 disabled:opacity-75 ${
                 isBotMode
                   ? "border-cyan-500/60 focus:border-cyan-400"
-                  : "border-[#464649] focus:border-purple-500"
+                  : "border-chat-border focus:border-purple-500"
               }`}
             />
             <button
@@ -306,7 +306,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
               className={`absolute right-9 top-1/2 -translate-y-1/2 rounded p-1 transition disabled:cursor-not-allowed disabled:opacity-50 ${
                 isBotMode
                   ? "bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30"
-                  : "text-gray-300 hover:bg-[#464649] hover:text-white"
+                  : "text-gray-300 hover:bg-chat-border hover:text-white"
               }`}
               title={t("chat.askBot")}
               aria-label={t("chat.askBot")}
@@ -319,7 +319,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
               type="button"
               onClick={() => setIsEmojiPickerOpen((current) => !current)}
               disabled={isInputDisabled}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-300 transition hover:bg-[#464649] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-300 transition hover:bg-chat-border hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               title="Emoji"
               aria-label="Emoji"
               aria-expanded={isEmojiPickerOpen}

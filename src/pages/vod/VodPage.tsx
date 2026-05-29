@@ -207,8 +207,8 @@ export function VodPage() {
   );
 
   const renderReplayChatPanel = () => (
-    <section className="h-full overflow-hidden rounded-xl border border-white/15 bg-[#0f0f0f]">
-      <div className="border-b border-white/10 px-4 py-3">
+    <section className="h-full overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <div className="border-b border-border bg-surface px-4 py-3">
         <h2 className="text-sm font-semibold tracking-wide text-foreground">{t("vod.replayChat")}</h2>
       </div>
 
@@ -219,23 +219,23 @@ export function VodPage() {
   );
 
   const renderRelatedVideosPanel = () => (
-    <section className="rounded-xl border border-white/15 bg-[#0f0f0f] p-3">
+    <section className="rounded-xl border border-border bg-card p-3 shadow-sm">
       <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
         <button
           type="button"
-          className="shrink-0 rounded-lg bg-foreground px-4 py-2 text-sm font-semibold text-background"
+          className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
         >
           {t("vod.filterAll")}
         </button>
         <button
           type="button"
-          className="shrink-0 rounded-lg bg-[#272727] px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f]"
+          className="shrink-0 rounded-lg bg-muted px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
         >
           {t("vod.filterFromStreamer", { name: streamerName })}
         </button>
         <button
           type="button"
-          className="shrink-0 rounded-lg bg-[#272727] px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f]"
+          className="shrink-0 rounded-lg bg-muted px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
         >
           {t("vod.filterRecommended")}
         </button>
@@ -253,7 +253,7 @@ export function VodPage() {
             {t("vod.relatedLoading")}
           </div>
         ) : relatedSessions.length === 0 ? (
-          <div className="rounded-lg bg-[#272727] p-4 text-sm text-muted-foreground">
+          <div className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">
             {t("vod.relatedEmpty")}
           </div>
         ) : (
@@ -265,7 +265,7 @@ export function VodPage() {
               <Link
                 key={item.id}
                 to={`/vod/${item.id}`}
-                className="group grid grid-cols-[136px_1fr] gap-3 rounded-lg p-1.5 transition hover:bg-white/[0.06] sm:grid-cols-[168px_1fr]"
+                className="group grid grid-cols-[136px_1fr] gap-3 rounded-lg p-1.5 transition hover:bg-accent/70 sm:grid-cols-[168px_1fr]"
               >
                 <div className="relative aspect-video overflow-hidden rounded-lg bg-gradient-to-br from-neutral-700 via-neutral-900 to-black">
                   <div className="absolute inset-0 flex items-center justify-center">
@@ -302,7 +302,7 @@ export function VodPage() {
   );
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <main className="flex min-h-0 flex-1">
         <div className="container relative mx-auto flex flex-1 flex-col gap-4 overflow-y-auto p-4 lg:p-6 lg:pb-10">
           <div className="md:col-span-2 space-y-4">
@@ -359,8 +359,8 @@ export function VodPage() {
                     onClick={() => setIsAssistantOpen(true)}
                     className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
                       isAssistantOpen
-                        ? "bg-cyan-500/20 text-cyan-100 ring-1 ring-cyan-400/30"
-                        : "bg-[#272727] text-foreground hover:bg-[#3f3f3f]"
+                        ? "bg-cyan-500/15 text-cyan-700 ring-1 ring-cyan-400/30 dark:text-cyan-100"
+                        : "bg-muted text-foreground hover:bg-accent"
                     }`}
                     aria-expanded={isAssistantOpen}
                   >
@@ -371,7 +371,7 @@ export function VodPage() {
                   <button
                     type="button"
                     onClick={() => void handleShare()}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#272727] px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f]"
+                    className="inline-flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-accent"
                   >
                     <Share2 className="h-4 w-4" />
                     {t("vod.share")}
@@ -381,7 +381,7 @@ export function VodPage() {
                     type="button"
                     onClick={() => void handleDownload()}
                     disabled={!session.vodUrl}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#272727] px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-[#3f3f3f] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm font-semibold text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Download className="h-4 w-4" />
                     {t("vod.download")}
@@ -391,7 +391,7 @@ export function VodPage() {
                     <button
                       type="button"
                       onClick={() => setIsReportOpen(true)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-500/20"
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-500/20 dark:text-red-200"
                     >
                       <Flag className="h-4 w-4" />
                       {t("report.open")}
@@ -415,7 +415,7 @@ export function VodPage() {
           </div>
         </div>
 
-        <aside className="hidden w-[420px] shrink-0 overflow-y-auto border-l border-border/50 bg-background px-4 py-3 xl:block 2xl:w-[500px]">
+        <aside className="hidden w-[420px] shrink-0 overflow-y-auto border-l border-border bg-surface px-4 py-3 xl:block 2xl:w-[500px]">
           {isAssistantOpen ? renderAssistantPanel() : renderDefaultSidebar()}
         </aside>
       </main>

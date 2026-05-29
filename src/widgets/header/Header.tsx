@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Search, Menu, Video, Radio, RefreshCw } from "lucide-react";
 import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { UserMenu, AuthModal } from "@/features/auth";
+import { ThemeMenu } from "@/features/theme";
 import { NotificationBell } from "@/widgets/notification-bell/NotificationBell";
 import { useAuth } from "@/app/providers/AuthContext";
 import { useStreamContext } from "@/app/providers/StreamContext";
@@ -154,6 +155,8 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3">
+          <ThemeMenu />
+
           {isAuthenticated ? (
             <Link 
               to="/dashboard"

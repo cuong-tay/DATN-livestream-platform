@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { ThemeProvider } from "next-themes";
 
 import App from "./app/App";
 import "./styles/index.css";
@@ -15,9 +16,16 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <I18nProvider>
-      <App />
-      <Toaster position="top-right" richColors />
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="system"
+        enableColorScheme
+        enableSystem
+        storageKey="app_theme_mode"
+      >
+        <App />
+        <Toaster position="top-right" richColors />
+      </ThemeProvider>
     </I18nProvider>
   </StrictMode>,
 );
-

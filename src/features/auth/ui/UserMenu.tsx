@@ -1,8 +1,10 @@
 import {
   LogOut,
+  Laptop,
   Moon,
   Settings,
   ShieldAlert,
+  Sun,
   User,
   Video,
   Wallet,
@@ -18,7 +20,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Switch,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuPortal,
@@ -26,12 +27,32 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/shared/ui";
-import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { useTheme } from "next-themes";
 import type { UserProfile } from "@/entities/user";
 import { useAuth } from "@/app/providers/AuthContext";
 import { languageLabels, useI18n, useI18nFormatters, type LanguageCode } from "@/shared/i18n";
 
+type ThemeMode = "light" | "dark" | "system";
+
+const themeLabels: Record<LanguageCode, { label: string; modes: Record<ThemeMode, string> }> = {
+  en: {
+    label: "Theme",
+    modes: { light: "Light", dark: "Dark", system: "System" },
+  },
+  vi: {
+    label: "Giao dien",
+    modes: { light: "Sang", dark: "Toi", system: "Theo he thong" },
+  },
+  es: {
+    label: "Tema",
+    modes: { light: "Claro", dark: "Oscuro", system: "Sistema" },
+  },
+};
+
+function normalizeTheme(value: string | undefined): ThemeMode {
+  return value === "light" || value === "dark" || value === "system" ? value : "system";
+}
 
 interface UserMenuProps {
   user: UserProfile;
@@ -41,22 +62,9 @@ export function UserMenu({ user }: UserMenuProps) {
   const { logout } = useAuth();
   const { t, language, setLanguage } = useI18n();
   const { formatNumber } = useI18nFormatters();
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    return document.documentElement.classList.contains("dark");
-  });
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [isDarkMode]);
-
-  const toggleTheme = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsDarkMode(!isDarkMode);
-  };
+  const { theme, setTheme } = useTheme();
+  const activeTheme = normalizeTheme(theme);
+  const themeCopy = themeLabels[language];
 
   return (
     <DropdownMenu>
@@ -133,16 +141,30 @@ export function UserMenu({ user }: UserMenuProps) {
         <DropdownMenuSeparator className="bg-border my-1" />
 
         <DropdownMenuGroup>
-          <DropdownMenuItem 
-            onClick={toggleTheme}
-            className="flex justify-between cursor-pointer focus:bg-accent focus:text-accent-foreground"
-          >
-            <div className="flex items-center">
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="cursor-pointer focus:bg-accent focus:text-accent-foreground">
               <Moon className="w-4 h-4 mr-2 text-muted-foreground" />
-              <span>{t("menu.darkTheme")}</span>
-            </div>
-            <Switch checked={isDarkMode} />
-          </DropdownMenuItem>
+              <span>{themeCopy.label}: {themeCopy.modes[activeTheme]}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent className="bg-background border-border text-foreground z-50">
+                <DropdownMenuRadioGroup value={activeTheme} onValueChange={(val) => setTheme(val)}>
+                  <DropdownMenuRadioItem value="light">
+                    <Sun className="mr-2 h-4 w-4 text-muted-foreground" />
+                    {themeCopy.modes.light}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="dark">
+                    <Moon className="mr-2 h-4 w-4 text-muted-foreground" />
+                    {themeCopy.modes.dark}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="system">
+                    <Laptop className="mr-2 h-4 w-4 text-muted-foreground" />
+                    {themeCopy.modes.system}
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
           
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="cursor-pointer focus:bg-accent focus:text-accent-foreground">

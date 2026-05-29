@@ -56,15 +56,15 @@ export function ReplayChatBoard({ sessionId, currentTime, sessionStart }: Replay
   }, [displayedMessages]);
 
   if (isLoading) {
-    return <div className="flex h-full items-center justify-center p-4">{t("chat.loadingReplay")}</div>;
+    return <div className="flex h-full items-center justify-center bg-chat p-4 text-chat-foreground">{t("chat.loadingReplay")}</div>;
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#18181b]">
+    <div className="flex h-full flex-col bg-chat text-chat-foreground">
       {/* Header */}
-      <div className="border-b border-[#2d2d31] p-3">
+      <div className="border-b border-chat-border p-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold flex items-center gap-2">
+          <h3 className="flex items-center gap-2 font-semibold text-chat-foreground">
             {t("chat.replayTitle")}
           </h3>
         </div>
@@ -84,20 +84,20 @@ export function ReplayChatBoard({ sessionId, currentTime, sessionStart }: Replay
                <span className="font-semibold text-purple-400">
                  {msg.senderName}
                </span>
-               <span className="text-gray-300">: {msg.content}</span>
+               <span className="text-gray-200">: {msg.content}</span>
             </div>
           </div>
         ))}
         {displayedMessages.length === 0 && (
-          <div className="text-center text-gray-500 text-sm py-8">
+          <div className="py-8 text-center text-sm text-gray-400">
             <p>{t("chat.empty")}</p>
           </div>
         )}
       </div>
       
       {/* Input */}
-      <div className="border-t border-[#2d2d31] p-3">
-        <div className="p-2 border border-[#464649] bg-[#2d2d31] text-center text-sm text-gray-400 rounded">
+      <div className="border-t border-chat-border p-3">
+        <div className="rounded border border-chat-border bg-chat-muted p-2 text-center text-sm text-gray-300">
           {t("chat.replayDisabled")}
         </div>
       </div>

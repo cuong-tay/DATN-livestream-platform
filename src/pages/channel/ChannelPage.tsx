@@ -555,7 +555,7 @@ export function ChannelPage() {
         <div className="max-w-lg text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h1 className="text-3xl font-bold mb-3">{t("channel.notFoundTitle")}</h1>
-          <p className="text-gray-400 mb-6">{error}</p>
+          <p className="mb-6 text-muted-foreground">{error}</p>
           <Link
             to="/"
             className="inline-flex items-center rounded-md bg-purple-600 px-5 py-2.5 font-semibold hover:bg-purple-700 transition"
@@ -583,14 +583,14 @@ export function ChannelPage() {
   const channelRoomId = liveRoom?.roomId ?? rooms[0]?.roomId ?? null;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-background text-foreground">
       {/* ── Hero banner ─────────────────────────────────────────────── */}
-      <section className="relative border-b border-[#2d2d31]">
+      <section className="relative border-b border-border bg-surface">
         <div className="relative h-44 overflow-hidden sm:h-56">
-          <div className="absolute inset-0 bg-gradient-to-r from-[#13131a] via-[#2b2045] to-[#0e0e10]" />
+          <div className="absolute inset-0 bg-gradient-to-r from-purple-100 via-surface to-sky-100 dark:from-[#13131a] dark:via-[#2b2045] dark:to-[#0e0e10]" />
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(125,211,252,0.15),_transparent_55%)]" />
-          <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-black/40 px-3 py-1 text-xs text-gray-200 backdrop-blur-sm">
-            <Sparkles className="h-3.5 w-3.5 text-sky-200" />
+          <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur-sm dark:border-white/15 dark:bg-black/40 dark:text-gray-200">
+            <Sparkles className="h-3.5 w-3.5 text-sky-500 dark:text-sky-200" />
             {t("channel.spotlight")}
           </div>
         </div>
@@ -600,7 +600,7 @@ export function ChannelPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
                 <div className="relative h-24 w-24 shrink-0">
-                  <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border-4 border-[#0e0e10] bg-[#1f1f24] shadow-lg shadow-black/60">
+                  <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border-4 border-background bg-muted shadow-lg shadow-black/20 dark:border-[#0e0e10] dark:bg-[#1f1f24] dark:shadow-black/60">
                     {streamerAvatarUrl ? (
                       <img
                         src={streamerAvatarUrl}
@@ -613,7 +613,9 @@ export function ChannelPage() {
                   </div>
                   <span
                     className={`absolute -bottom-2 left-1/2 inline-flex -translate-x-1/2 items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold ${
-                      liveRoom ? "bg-red-500/20 text-red-300" : "bg-slate-700/50 text-slate-300"
+                      liveRoom
+                        ? "bg-red-500/15 text-red-700 dark:bg-red-500/20 dark:text-red-300"
+                        : "bg-slate-200 text-slate-700 dark:bg-slate-700/50 dark:text-slate-300"
                     }`}
                   >
                     <Dot className="h-4 w-4" />
@@ -623,13 +625,13 @@ export function ChannelPage() {
 
                 <div className="space-y-2">
                   <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{streamerName}</h1>
-                  <div className="flex flex-wrap items-center gap-2 text-sm text-gray-400">
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                     <span>{formatNumber(displayedFollowerCount)} {t("channel.followers")}</span>
                     <span className="text-gray-600">•</span>
                     <span>{t("channel.liveRoomsCount", { count: formatNumber(rooms.length) })}</span>
                   </div>
                   {streamerBio && (
-                    <p className="max-w-3xl text-sm text-gray-300">
+                    <p className="max-w-3xl text-sm text-muted-foreground">
                       {streamerBio}
                     </p>
                   )}
@@ -642,7 +644,7 @@ export function ChannelPage() {
                   disabled={!isAuthenticated || followLoading}
                   className={`inline-flex items-center gap-2 rounded-md px-4 py-2 font-semibold transition disabled:opacity-50 ${
                     isFollowing
-                      ? "bg-[#2d2d31] text-white hover:bg-[#3d3d41]"
+                      ? "bg-muted text-foreground hover:bg-accent"
                       : "bg-purple-600 text-white hover:bg-purple-700"
                   }`}
                 >
@@ -653,7 +655,7 @@ export function ChannelPage() {
                   )}
                   {isFollowing ? t("channel.following") : t("channel.follow")}
                 </button>
-                <button className="inline-flex items-center gap-2 rounded-md bg-[#2d2d31]/90 px-4 py-2 font-semibold text-white hover:bg-[#3d3d41] transition">
+                <button className="inline-flex items-center gap-2 rounded-md bg-muted px-4 py-2 font-semibold text-foreground transition hover:bg-accent">
                   <Share2 className="h-4 w-4" />
                   {t("channel.share")}
                 </button>
@@ -661,7 +663,7 @@ export function ChannelPage() {
                   <button
                     type="button"
                     onClick={() => setReportTarget({ roomId: channelRoomId })}
-                    className="inline-flex items-center gap-2 rounded-md bg-red-500/15 px-4 py-2 font-semibold text-red-200 transition hover:bg-red-500/25"
+                    className="inline-flex items-center gap-2 rounded-md bg-red-500/10 px-4 py-2 font-semibold text-red-700 transition hover:bg-red-500/20 dark:bg-red-500/15 dark:text-red-200 dark:hover:bg-red-500/25"
                   >
                     <Flag className="h-4 w-4" />
                     {t("report.open")}
@@ -671,21 +673,21 @@ export function ChannelPage() {
             </div>
 
             <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-lg border border-[#2d2d31] bg-black/40 p-3 backdrop-blur-sm">
-                <p className="text-xs text-gray-400">{t("channel.liveRooms")}</p>
+              <div className="rounded-lg border border-border bg-card p-3 shadow-sm">
+                <p className="text-xs text-muted-foreground">{t("channel.liveRooms")}</p>
                 <p className="mt-1 text-xl font-bold">{rooms.length}</p>
               </div>
-              <div className="rounded-lg border border-[#2d2d31] bg-black/40 p-3 backdrop-blur-sm">
-                <p className="text-xs text-gray-400">{t("channel.followersLabel")}</p>
+              <div className="rounded-lg border border-border bg-card p-3 shadow-sm">
+                <p className="text-xs text-muted-foreground">{t("channel.followersLabel")}</p>
                 <p className="mt-1 text-xl font-bold">{formatViewerCount(displayedFollowerCount)}</p>
               </div>
-              <div className="rounded-lg border border-[#2d2d31] bg-black/40 p-3 backdrop-blur-sm">
-                <p className="text-xs text-gray-400">{t("channel.liveCategory")}</p>
+              <div className="rounded-lg border border-border bg-card p-3 shadow-sm">
+                <p className="text-xs text-muted-foreground">{t("channel.liveCategory")}</p>
                 <p className="mt-1 text-xl font-bold">{primaryCategory}</p>
               </div>
-              <div className="rounded-lg border border-[#2d2d31] bg-black/40 p-3 backdrop-blur-sm">
-                <p className="text-xs text-gray-400">{t("channel.status")}</p>
-                <p className={`mt-1 flex items-center text-xl font-bold ${liveRoom ? "text-red-400" : "text-gray-500"}`}>
+              <div className="rounded-lg border border-border bg-card p-3 shadow-sm">
+                <p className="text-xs text-muted-foreground">{t("channel.status")}</p>
+                <p className={`mt-1 flex items-center text-xl font-bold ${liveRoom ? "text-red-500" : "text-muted-foreground"}`}>
                   <Dot className="h-5 w-5" />
                   {liveRoom ? t("channel.live") : t("channel.offline")}
                 </p>
@@ -696,12 +698,12 @@ export function ChannelPage() {
       </section>
 
       <section className="mx-auto max-w-[1920px] px-4 pt-6">
-        <div className="inline-flex rounded-lg border border-[#2d2d31] bg-[#18181b] p-1">
+        <div className="inline-flex rounded-lg border border-border bg-muted p-1">
           <button
             type="button"
             onClick={() => setActiveSection("home")}
             className={`rounded-md px-4 py-2 text-sm font-medium transition ${
-              activeSection === "home" ? "bg-purple-600 text-white" : "text-gray-300 hover:bg-[#2d2d31]"
+              activeSection === "home" ? "bg-purple-600 text-white" : "text-muted-foreground hover:bg-background hover:text-foreground"
             }`}
           >
             {t("channel.tabs.home")}
@@ -710,7 +712,7 @@ export function ChannelPage() {
             type="button"
             onClick={() => setActiveSection("videos")}
             className={`rounded-md px-4 py-2 text-sm font-medium transition ${
-              activeSection === "videos" ? "bg-purple-600 text-white" : "text-gray-300 hover:bg-[#2d2d31]"
+              activeSection === "videos" ? "bg-purple-600 text-white" : "text-muted-foreground hover:bg-background hover:text-foreground"
             }`}
           >
             {t("channel.tabs.videos")}
@@ -752,12 +754,12 @@ export function ChannelPage() {
 
               {isOwnChannel ? (
                 isSessionsLoading ? (
-                  <div className="rounded-xl border border-[#2d2d31] bg-[#18181b] p-6 text-sm text-gray-400 flex items-center gap-2">
+                  <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     {t("channel.loadingVideos")}
                   </div>
                 ) : sessions.length === 0 ? (
-                  <div className="rounded-xl border border-[#2d2d31] bg-[#18181b] p-6 text-sm text-gray-500">
+                  <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
                     {t("channel.empty.noUploadedVideos")}
                   </div>
                 ) : (
@@ -768,7 +770,7 @@ export function ChannelPage() {
                         className="group relative block text-left"
                       >
                         <Link to={`/vod/${session.id}`} className="block">
-                          <div className="relative mb-2 aspect-video overflow-hidden rounded-lg border border-[#2d2d31] bg-gradient-to-br from-slate-800 via-slate-900 to-black">
+                          <div className="relative mb-2 aspect-video overflow-hidden rounded-lg border border-border bg-gradient-to-br from-slate-800 via-slate-900 to-black">
                             {session.vodUrl ? (
                               <VodThumbnail
                                 vodUrl={session.vodUrl}
@@ -805,8 +807,8 @@ export function ChannelPage() {
                               <p className="mb-0.5 line-clamp-2 text-sm font-semibold transition group-hover:text-purple-400">
                                 {session.title || t("channel.untitledStream")}
                               </p>
-                              <p className="text-sm text-gray-400">{streamerName}</p>
-                              <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-500">
+                              <p className="text-sm text-muted-foreground">{streamerName}</p>
+                              <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
                                 <span className="flex items-center gap-1">
                                   <Clock className="h-3 w-3" />
                                   {t("channel.durationMinutes", { count: session.durationMinutes })}
@@ -824,16 +826,16 @@ export function ChannelPage() {
                   </div>
                 )
               ) : isPublicVodsLoading ? (
-                <div className="rounded-xl border border-[#2d2d31] bg-[#18181b] p-6 text-sm text-gray-400 flex items-center gap-2">
+                <div className="flex items-center gap-2 rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {t("channel.loadingVideos")}
                 </div>
               ) : publicVodsError ? (
-                <div className="rounded-xl border border-[#2d2d31] bg-[#18181b] p-6 text-sm text-gray-500">
+                <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
                   {publicVodsError}
                 </div>
               ) : publicVods.length === 0 ? (
-                <div className="rounded-xl border border-[#2d2d31] bg-[#18181b] p-6 text-sm text-gray-500">
+                <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
                   {t("channel.empty.noUploadedVideos")}
                 </div>
               ) : (
@@ -844,7 +846,7 @@ export function ChannelPage() {
                       className="group relative block text-left"
                     >
                       <Link to={`/vod/${vod.sessionId}`} className="block">
-                        <div className="relative mb-2 aspect-video overflow-hidden rounded-lg border border-[#2d2d31] bg-gradient-to-br from-slate-800 via-slate-900 to-black">
+                        <div className="relative mb-2 aspect-video overflow-hidden rounded-lg border border-border bg-gradient-to-br from-slate-800 via-slate-900 to-black">
                           {vod.vodUrl ? (
                             <VodThumbnail
                               vodUrl={vod.vodUrl}
@@ -881,8 +883,8 @@ export function ChannelPage() {
                             <p className="mb-0.5 line-clamp-2 text-sm font-semibold transition group-hover:text-purple-400">
                               {vod.title || t("channel.untitledStream")}
                             </p>
-                            <p className="text-sm text-gray-400">{streamerName}</p>
-                            <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-500">
+                            <p className="text-sm text-muted-foreground">{streamerName}</p>
+                            <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
                                 {t("channel.durationMinutes", { count: vod.durationMinutes })}
@@ -915,12 +917,12 @@ export function ChannelPage() {
           {/* Sidebar */}
           <aside className="space-y-4">
             {activeSection === "home" && (
-              <div className="rounded-xl border border-[#2d2d31] bg-[#18181b] p-4">
+              <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
                 <h3 className="mb-2 flex items-center gap-2 font-semibold">
                   <Video className="h-4 w-4 text-purple-400" />
                   {t("channel.videoSectionTitle")}
                 </h3>
-                <p className="text-sm text-gray-500 mb-3">
+                <p className="mb-3 text-sm text-muted-foreground">
                   {t("channel.videoSectionDescription")}
                 </p>
                 <button
@@ -935,25 +937,25 @@ export function ChannelPage() {
 
             {/* Channel info */}
             {streamerBio && (
-              <div className="rounded-xl border border-[#2d2d31] bg-[#18181b] p-4">
-                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-400">
+              <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   {t("channel.about")}
                 </h3>
-                <p className="text-sm text-gray-300 whitespace-pre-line">
+                <p className="whitespace-pre-line text-sm text-foreground">
                   {streamerBio}
                 </p>
               </div>
             )}
 
-            <div className="rounded-xl border border-[#2d2d31] bg-[#18181b] p-4">
+            <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
               <h3 className="mb-3 font-semibold">{t("channel.snapshot")}</h3>
               <div className="space-y-2 text-sm">
-                <p className="flex items-center gap-2 text-gray-300">
-                  <Users className="h-4 w-4 text-gray-400" />
+                <p className="flex items-center gap-2 text-foreground">
+                  <Users className="h-4 w-4 text-muted-foreground" />
                   {formatNumber(displayedFollowerCount)} {t("channel.followers")}
                 </p>
-                <p className="flex items-center gap-2 text-gray-300">
-                  <CalendarDays className="h-4 w-4 text-gray-400" />
+                <p className="flex items-center gap-2 text-foreground">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
                   {t("channel.pastSessions", { count: formatNumber(vodCount) })}
                 </p>
               </div>
