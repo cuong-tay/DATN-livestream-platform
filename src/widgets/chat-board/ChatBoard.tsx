@@ -59,6 +59,8 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
     chatAlert,
     clearChatAlert,
     isConnected,
+    isChatInputDisabled,
+    chatTimeoutRemainingSeconds,
   } = useStompChat(roomId, sessionId);
 
   const handleBanUser = (username: string) => {
@@ -124,7 +126,9 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
   }, [isEmojiPickerOpen]);
 
   const isBotSubmit = isBotMode || BOT_PREFIX_PATTERN.test(newMessage);
-  const isSubmitDisabled = !roomId || !newMessage.trim() || (isBotSubmit && (!isConnected || botLoading));
+  const chatTimeoutMinutes = Math.max(1, Math.ceil(chatTimeoutRemainingSeconds / 60));
+  const isInputDisabled = !roomId || isChatInputDisabled;
+  const isSubmitDisabled = isInputDisabled || !newMessage.trim() || (isBotSubmit && botLoading);
 
   return (
     <div className="flex flex-col h-full bg-[#18181b]">
@@ -186,6 +190,15 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
                 <span className={isBotMessage ? "text-cyan-50" : "text-gray-300"}>
                   : {msg.message}
                 </span>
+                {msg.moderationStatus === "checking" && (
+                  <span
+                    className="ml-2 inline-flex items-center rounded border border-yellow-500/20 bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-200"
+                    title={t("chat.aiChecking")}
+                    aria-label={t("chat.aiChecking")}
+                  >
+                    AI...
+                  </span>
+                )}
               </div>
 
               {isStreamer && !isBotMessage && msg.username !== user?.username && (
@@ -269,13 +282,15 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder={
-                isConnected
+                isChatInputDisabled
+                  ? t("chat.timeoutPlaceholder", { minutes: chatTimeoutMinutes })
+                  : isConnected
                   ? isBotMode
                     ? t("chat.botPlaceholder")
                     : t("chat.placeholder")
                   : t("chat.connecting")
               }
-              disabled={!roomId}
+              disabled={isInputDisabled}
               className={`w-full bg-[#2d2d31] border rounded px-3 py-2 pr-20 focus:outline-none text-sm disabled:opacity-50 ${
                 isBotMode
                   ? "border-cyan-500/60 focus:border-cyan-400"
@@ -285,7 +300,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
             <button
               type="button"
               onClick={toggleBotMode}
-              disabled={!isConnected || botLoading}
+              disabled={isInputDisabled || botLoading}
               className={`absolute right-9 top-1/2 -translate-y-1/2 rounded p-1 transition disabled:cursor-not-allowed disabled:opacity-50 ${
                 isBotMode
                   ? "bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30"
@@ -301,7 +316,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
               ref={emojiButtonRef}
               type="button"
               onClick={() => setIsEmojiPickerOpen((current) => !current)}
-              disabled={!isConnected}
+              disabled={isInputDisabled}
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 transition hover:bg-[#464649] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               title="Emoji"
               aria-label="Emoji"

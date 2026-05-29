@@ -7,4 +7,5 @@ export interface ChatMessage {
   timestamp: Date;
   color: string;
   messageType?: string;
+  moderationStatus?: "checking";
 }

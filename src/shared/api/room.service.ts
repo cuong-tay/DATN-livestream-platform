@@ -134,29 +134,27 @@ export interface PublicVodItem {
 }
 
 export interface ChatMessageResponse {
+  messageId?: string;
   roomId: number;
   senderName: string;
   content: string;
   messageType?: string;
+  blockedWords?: string[] | null;
   timestamp?: string;
   createdAt?: string;
 }
-
-export type BlockedWordMatchType = "CONTAINS" | "EXACT" | "REGEX";
 
 export interface BlockedWord {
   id: number;
   roomId: number;
   word: string;
-  matchType: BlockedWordMatchType;
   enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface UpsertBlockedWordRequest {
   word?: string;
-  matchType?: BlockedWordMatchType;
   enabled?: boolean;
 }
 
@@ -268,11 +266,15 @@ export const roomService = {
 
   /** GET /sessions/{sessionId}/chats — lấy toàn bộ chat của session (public) */
   getSessionChats: (sessionId: number) =>
-    httpClient.get<ChatMessageResponse[]>(`/sessions/${sessionId}/chats`),
+    httpClient.get<ChatMessageResponse[]>(`/sessions/${sessionId}/chats`, { skipAuth: true }),
 
   /** GET /rooms/{roomId}/chats — lịch sử chat 50 tin gần nhất (public) */
   getChatHistory: (roomId: number) =>
-    httpClient.get<ChatMessageResponse[]>(`/rooms/${roomId}/chats`),
+    httpClient.get<ChatMessageResponse[]>(`/rooms/${roomId}/chats`, { skipAuth: true }),
+
+  /** GET /rooms/{roomId}/recent-chat — 30 tin gần nhất (public) */
+  getRecentChat: (roomId: number) =>
+    httpClient.get<ChatMessageResponse[]>(`/rooms/${roomId}/recent-chat`, { skipAuth: true }),
 
   /** GET /rooms/{roomId}/blocked-words - streamer JWT */
   getBlockedWords: (roomId: number) =>

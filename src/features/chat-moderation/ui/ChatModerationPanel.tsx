@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   CheckCircle2,
   Loader2,
   Pencil,
@@ -12,46 +11,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  roomService,
-  type BlockedWord,
-  type BlockedWordMatchType,
-} from "@/shared/api/room.service";
+import { roomService, type BlockedWord } from "@/shared/api/room.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import {
   Badge,
   Button,
   Input,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Switch,
 } from "@/shared/ui";
-
-const MATCH_TYPES: Array<{
-  value: BlockedWordMatchType;
-  label: string;
-  description: string;
-}> = [
-  {
-    value: "CONTAINS",
-    label: "Contains",
-    description: "Chan khi tin nhan co chua tu khoa.",
-  },
-  {
-    value: "EXACT",
-    label: "Exact",
-    description: "Chan khi toan bo tin nhan trung khop.",
-  },
-  {
-    value: "REGEX",
-    label: "Regex",
-    description: "Chan theo bieu thuc chinh quy.",
-  },
-];
 
 interface ChatModerationPanelProps {
   roomId: number;
@@ -59,24 +27,13 @@ interface ChatModerationPanelProps {
 
 interface DraftState {
   word: string;
-  matchType: BlockedWordMatchType;
   enabled: boolean;
 }
 
 const initialDraft: DraftState = {
   word: "",
-  matchType: "CONTAINS",
   enabled: true,
 };
-
-function isInvalidRegex(pattern: string): boolean {
-  try {
-    new RegExp(pattern);
-    return false;
-  } catch {
-    return true;
-  }
-}
 
 function hasDuplicateWord(items: BlockedWord[], word: string, exceptId?: number): boolean {
   const normalized = word.trim().toLowerCase();
@@ -94,9 +51,6 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
 
   const enabledCount = useMemo(() => items.filter((item) => item.enabled).length, [items]);
   const disabledCount = items.length - enabledCount;
-  const activeDraft = editingId ? editDraft : draft;
-  const regexLooksInvalid =
-    activeDraft.matchType === "REGEX" && activeDraft.word.trim() && isInvalidRegex(activeDraft.word.trim());
 
   const fetchBlockedWords = async () => {
     setIsLoading(true);
@@ -155,7 +109,6 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
     setEditingId(item.id);
     setEditDraft({
       word: item.word,
-      matchType: item.matchType,
       enabled: item.enabled,
     });
   };
@@ -185,7 +138,10 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
   const handleToggle = async (item: BlockedWord, enabled: boolean) => {
     setBusyId(item.id);
     try {
-      const response = await roomService.updateBlockedWord(roomId, item.id, { enabled });
+      const response = await roomService.updateBlockedWord(roomId, item.id, {
+        word: item.word,
+        enabled,
+      });
       setItems((current) => current.map((row) => (row.id === item.id ? response.data : row)));
     } catch (error) {
       toast.error(extractApiErrorMessage(error));
@@ -221,7 +177,7 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
             <div>
               <h2 className="text-base font-semibold text-white">Chat Moderation</h2>
               <p className="mt-1 max-w-2xl text-sm text-gray-400">
-                Quan ly tu khoa backend se dung de chan tin nhan truoc khi broadcast vao room.
+                Quan ly tu khoa backend gui sang AI moderation de go tin nhan vi pham khoi room.
               </p>
             </div>
           </div>
@@ -254,37 +210,13 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
                 value={draft.word}
                 maxLength={255}
                 onChange={(event) => setDraft((current) => ({ ...current, word: event.target.value }))}
-                placeholder="spam, toxic, /regex/"
+                placeholder="18+, spam, toxic"
                 className="border-[#4d4d4d] bg-black text-white placeholder:text-gray-600"
               />
               <div className="flex justify-between text-[11px] text-gray-500">
-                <span>Khong trung lap voi list hien tai.</span>
+                <span>AI moderation se go tin nhan co chua tu/cum tu nay.</span>
                 <span>{draft.word.length}/255</span>
               </div>
-            </div>
-
-            <div className="grid gap-2">
-              <Label className="text-xs font-bold uppercase tracking-widest text-gray-400">Match type</Label>
-              <Select
-                value={draft.matchType}
-                onValueChange={(value) =>
-                  setDraft((current) => ({ ...current, matchType: value as BlockedWordMatchType }))
-                }
-              >
-                <SelectTrigger className="w-full border-[#4d4d4d] bg-black text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="border-[#3d3d3d] bg-[#18181b] text-white">
-                  {MATCH_TYPES.map((type) => (
-                    <SelectItem key={type.value} value={type.value}>
-                      {type.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-gray-500">
-                {MATCH_TYPES.find((type) => type.value === draft.matchType)?.description}
-              </p>
             </div>
 
             <div className="flex items-center justify-between rounded-lg border border-[#3d3d3d] bg-black/20 px-3 py-3">
@@ -294,15 +226,6 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
               </div>
               <Switch checked={draft.enabled} onCheckedChange={(enabled) => setDraft((current) => ({ ...current, enabled }))} />
             </div>
-
-            {draft.matchType === "REGEX" && (
-              <div className="flex gap-2 rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-100">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-300" />
-                <span>
-                  Regex sai se bi backend bo qua khi kiem tra chat. Frontend chi canh bao, khong chan thao tac luu.
-                </span>
-              </div>
-            )}
 
             <Button
               type="button"
@@ -344,7 +267,7 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
               <ShieldAlert className="mb-3 h-10 w-10 text-gray-600" />
               <p className="font-medium text-gray-300">Chua co tu khoa nao.</p>
               <p className="mt-1 max-w-sm text-sm text-gray-500">
-                Them rule dau tien de backend bat dau loc chat truoc khi tin nhan xuat hien trong room.
+                Them rule dau tien de AI moderation co context khi kiem tra chat trong room.
               </p>
             </div>
           ) : (
@@ -356,30 +279,13 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
                 return (
                   <div key={item.id} className="p-4 transition-colors hover:bg-[#262626]">
                     {isEditing ? (
-                      <div className="grid gap-3 lg:grid-cols-[1fr_150px_96px_auto] lg:items-center">
+                      <div className="grid gap-3 lg:grid-cols-[1fr_96px_auto] lg:items-center">
                         <Input
                           value={editDraft.word}
                           maxLength={255}
                           onChange={(event) => setEditDraft((current) => ({ ...current, word: event.target.value }))}
                           className="border-[#4d4d4d] bg-black text-white"
                         />
-                        <Select
-                          value={editDraft.matchType}
-                          onValueChange={(value) =>
-                            setEditDraft((current) => ({ ...current, matchType: value as BlockedWordMatchType }))
-                          }
-                        >
-                          <SelectTrigger className="w-full border-[#4d4d4d] bg-black text-white">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent className="border-[#3d3d3d] bg-[#18181b] text-white">
-                            {MATCH_TYPES.map((type) => (
-                              <SelectItem key={type.value} value={type.value}>
-                                {type.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
                         <div className="flex items-center gap-2">
                           <Switch
                             checked={editDraft.enabled}
@@ -409,7 +315,7 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid gap-3 lg:grid-cols-[1fr_120px_96px_auto] lg:items-center">
+                      <div className="grid gap-3 lg:grid-cols-[1fr_96px_auto] lg:items-center">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="truncate font-mono text-sm font-semibold text-white">{item.word}</p>
@@ -423,17 +329,11 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
                             >
                               {item.enabled ? "Enabled" : "Disabled"}
                             </Badge>
-                            {item.matchType === "REGEX" && isInvalidRegex(item.word) && (
-                              <Badge variant="outline" className="border-yellow-500/30 bg-yellow-500/10 text-yellow-200">
-                                Regex warning
-                              </Badge>
-                            )}
                           </div>
-                          <p className="mt-1 text-xs text-gray-500">Cap nhat gan nhat: {item.updatedAt}</p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Cap nhat gan nhat: {item.updatedAt ?? item.createdAt ?? "-"}
+                          </p>
                         </div>
-                        <Badge variant="secondary" className="w-fit bg-[#34343a] text-gray-200">
-                          {item.matchType}
-                        </Badge>
                         <div className="flex items-center gap-2">
                           <Switch
                             checked={item.enabled}
@@ -473,11 +373,6 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
         </div>
       </div>
 
-      {regexLooksInvalid && (
-        <div className="border-t border-yellow-500/20 bg-yellow-500/10 px-5 py-3 text-xs text-yellow-100">
-          Regex hien tai khong hop le. Backend co the bo qua rule nay khi kiem tra chat.
-        </div>
-      )}
     </section>
   );
 }

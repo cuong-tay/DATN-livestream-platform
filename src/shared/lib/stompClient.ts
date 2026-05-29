@@ -5,10 +5,12 @@ import { SOCKJS_URL } from "@/shared/api/apiConfig";
 type ConnectionState = "disconnected" | "connecting" | "connected";
 type ConnectionListener = (state: ConnectionState) => void;
 type SubscriptionFactory = () => StompSubscription | null;
+type PublishHeaders = Record<string, string>;
 
 type SubscribeHandler = (message: IMessage) => void;
 
 const IDLE_DISCONNECT_MS = 15_000;
+const AUTHORIZATION_HEADER = "Authorization";
 
 let client: Client | null = null;
 let connectionState: ConnectionState = "disconnected";
@@ -16,6 +18,11 @@ let activeSubscriptions = 0;
 let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const connectionListeners = new Set<ConnectionListener>();
 const pendingSubscriptions: SubscriptionFactory[] = [];
+
+function buildAuthorizationHeaders(): PublishHeaders {
+  const token = localStorage.getItem("accessToken");
+  return token ? { [AUTHORIZATION_HEADER]: `Bearer ${token}` } : {};
+}
 
 function setConnectionState(nextState: ConnectionState) {
   if (connectionState === nextState) return;
@@ -36,8 +43,7 @@ function ensureClient(): Client {
   });
 
   client.beforeConnect = async () => {
-    const token = localStorage.getItem("accessToken");
-    client!.connectHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+    client!.connectHeaders = buildAuthorizationHeaders();
   };
 
   client.onConnect = () => {
@@ -149,12 +155,23 @@ export function subscribeToTopic(destination: string, handler: SubscribeHandler)
   };
 }
 
-export function publishMessage(destination: string, body: string): boolean {
+export function publishMessage(
+  destination: string,
+  body: string,
+  headers: PublishHeaders = {},
+): boolean {
   if (!client?.connected) {
     ensureStompConnection();
     return false;
   }
 
-  client.publish({ destination, body });
+  client.publish({
+    destination,
+    body,
+    headers: {
+      ...buildAuthorizationHeaders(),
+      ...headers,
+    },
+  });
   return true;
 }

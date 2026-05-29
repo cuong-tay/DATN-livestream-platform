@@ -25,12 +25,17 @@ interface UseStompChatReturn {
   chatAlert: string | null;
   clearChatAlert: () => void;
   isConnected: boolean;
+  isChatInputDisabled: boolean;
+  chatTimeoutRemainingSeconds: number;
 }
 
 interface ChatAlertPayload {
   type?: string;
   message?: string;
   durationMinutes?: number | null;
+  messageId?: string;
+  removedContent?: string;
+  blockedWords?: string[];
 }
 
 type ChatWirePayload = Partial<ChatMessageResponse> & {
@@ -38,13 +43,13 @@ type ChatWirePayload = Partial<ChatMessageResponse> & {
   message?: string;
 };
 
-const LOCAL_MESSAGE_TTL_MS = 10_000;
-
 interface PendingChatPublish {
+  destination: string;
   body: string;
-  localMessage?: ChatMessage;
-  localEchoAdded: boolean;
 }
+
+const AI_MODERATION_CHECK_MS = 7_000;
+type BrowserTimerId = number;
 
 /** Pick a random chat colour for incoming messages */
 function randomColor(): string {
@@ -52,36 +57,39 @@ function randomColor(): string {
 }
 
 function normalizeMessageType(messageType?: string, fallback?: string): string | undefined {
-  return messageType?.trim() || fallback;
+  const normalized = messageType?.trim();
+  return normalized ? normalized.toUpperCase() : fallback;
+}
+
+function normalizeEventType(messageType?: string): string {
+  return messageType?.trim().toUpperCase() ?? "";
 }
 
 function readMessageText(payload: ChatWirePayload): string {
   return payload.content ?? payload.answer ?? payload.message ?? "";
 }
 
-function appendMessageWithLocalEchoDedupe(
-  currentMessages: ChatMessage[],
-  incomingMessage: ChatMessage,
-): ChatMessage[] {
-  const incomingText = incomingMessage.message.trim();
-  const incomingUsername = incomingMessage.username.trim();
-  const incomingTime = incomingMessage.timestamp.getTime();
+function readMessageId(payload: ChatWirePayload | ChatAlertPayload): string | undefined {
+  const messageId = payload.messageId?.trim();
+  return messageId || undefined;
+}
 
-  const matchingLocalIndex = currentMessages.findIndex((message) => {
-    if (!message.id.startsWith("local-")) return false;
-    if (message.message.trim() !== incomingText) return false;
-    if (message.username.trim() !== incomingUsername) return false;
-
-    return Math.abs(incomingTime - message.timestamp.getTime()) <= LOCAL_MESSAGE_TTL_MS;
-  });
-
-  if (matchingLocalIndex === -1) {
-    return [...currentMessages.slice(-(CHAT_MAX_MESSAGES - 1)), incomingMessage];
+function upsertMessage(currentMessages: ChatMessage[], incomingMessage: ChatMessage): ChatMessage[] {
+  const existingIndex = currentMessages.findIndex((message) => message.id === incomingMessage.id);
+  if (existingIndex !== -1) {
+    const nextMessages = [...currentMessages];
+    nextMessages[existingIndex] = {
+      ...incomingMessage,
+      color: nextMessages[existingIndex].color || incomingMessage.color,
+    };
+    return nextMessages.slice(-CHAT_MAX_MESSAGES);
   }
 
-  const nextMessages = [...currentMessages];
-  nextMessages[matchingLocalIndex] = incomingMessage;
-  return nextMessages.slice(-CHAT_MAX_MESSAGES);
+  return [...currentMessages.slice(-(CHAT_MAX_MESSAGES - 1)), incomingMessage];
+}
+
+function removeMessageById(currentMessages: ChatMessage[], messageId: string): ChatMessage[] {
+  return currentMessages.filter((message) => message.id !== messageId);
 }
 
 /** Map a REST history message to the UI ChatMessage shape */
@@ -90,7 +98,7 @@ function mapHistoryMessage(msg: ChatMessageResponse, idx: number): ChatMessage {
   const parsedTimestamp = rawTimestamp ? new Date(rawTimestamp) : new Date();
   const messageType = normalizeMessageType(msg.messageType);
   return {
-    id: `hist-${idx}-${rawTimestamp ?? "unknown"}`,
+    id: msg.messageId || `hist-${idx}-${rawTimestamp ?? "unknown"}`,
     username: msg.senderName || (messageType === "BOT" ? "AI Bot" : "Anonymous"),
     message: readMessageText(msg),
     timestamp: parsedTimestamp,
@@ -107,7 +115,7 @@ function mapIncomingMessage(
   const rawTimestamp = payload.timestamp ?? payload.createdAt;
   const messageType = normalizeMessageType(payload.messageType, fallbackMessageType);
   return {
-    id,
+    id: readMessageId(payload) ?? id,
     username: payload.senderName || (messageType === "BOT" ? "AI Bot" : "Anonymous"),
     message: readMessageText(payload),
     timestamp: rawTimestamp ? new Date(rawTimestamp) : new Date(),
@@ -131,7 +139,7 @@ function isBotUnavailableAlert(payload: ChatAlertPayload): boolean {
 
 /**
  * Real-time chat via STOMP over SockJS.
- * - On mount: fetches the last 50 messages via REST, then connects WebSocket.
+ * - On mount: fetches recent messages via REST, then connects WebSocket.
  * - Publishes to `/app/chat.sendMessage`.
  * - Subscribes to `/topic/room/{roomId}`.
  */
@@ -142,29 +150,73 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   const [botLoading, setBotLoading] = useState(false);
   const [botAlert, setBotAlert] = useState<string | null>(null);
   const [chatAlert, setChatAlert] = useState<string | null>(null);
+  const [chatTimeoutUntil, setChatTimeoutUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const [isConnected, setIsConnected] = useState(
     getStompConnectionState() === "connected",
   );
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const seqRef = useRef(0);
   const pendingChatPublishesRef = useRef<PendingChatPublish[]>([]);
+  const moderationTimersRef = useRef(new Map<string, BrowserTimerId>());
 
   const nextId = () => {
     seqRef.current += 1;
     return `msg-${Date.now()}-${seqRef.current}`;
   };
 
+  const clearModerationTimer = useCallback((messageId: string) => {
+    const timerId = moderationTimersRef.current.get(messageId);
+    if (!timerId) return;
+
+    window.clearTimeout(timerId);
+    moderationTimersRef.current.delete(messageId);
+  }, []);
+
+  const scheduleModerationCheckClear = useCallback(
+    (messageId: string) => {
+      clearModerationTimer(messageId);
+
+      const timerId = window.setTimeout(() => {
+        moderationTimersRef.current.delete(messageId);
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === messageId && message.moderationStatus === "checking"
+              ? { ...message, moderationStatus: undefined }
+              : message,
+          ),
+        );
+      }, AI_MODERATION_CHECK_MS);
+
+      moderationTimersRef.current.set(messageId, timerId);
+    },
+    [clearModerationTimer],
+  );
+
+  const clearAllModerationTimers = useCallback(() => {
+    moderationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    moderationTimersRef.current.clear();
+  }, []);
+
+  const chatTimeoutRemainingSeconds = chatTimeoutUntil
+    ? Math.max(0, Math.ceil((chatTimeoutUntil - now) / 1000))
+    : 0;
+  const isChatInputDisabled = chatTimeoutRemainingSeconds > 0;
+
   // ── Fetch REST history on mount ────────────────────────────────────────
   useEffect(() => {
+    clearAllModerationTimers();
     setMessages([]);
     setBotLoading(false);
     setBotAlert(null);
     setChatAlert(null);
+    setChatTimeoutUntil(null);
+    setNow(Date.now());
 
     if (!roomId) return;
 
     roomService
-      .getChatHistory(roomId)
+      .getRecentChat(roomId)
       .then((res) => {
         const history = res.data.map(mapHistoryMessage);
         setMessages(history.slice(-CHAT_MAX_MESSAGES));
@@ -172,7 +224,25 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       .catch(() => {
         // History unavailable — start with empty chat
       });
-  }, [roomId]);
+  }, [clearAllModerationTimers, roomId]);
+
+  useEffect(() => clearAllModerationTimers, [clearAllModerationTimers]);
+
+  useEffect(() => {
+    if (!chatTimeoutUntil) return;
+
+    const tick = () => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+      if (currentTime >= chatTimeoutUntil) {
+        setChatTimeoutUntil(null);
+      }
+    };
+
+    tick();
+    const intervalId = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(intervalId);
+  }, [chatTimeoutUntil]);
 
   // ── Shared STOMP WebSocket connection ──────────────────────────────────
   useEffect(() => {
@@ -190,17 +260,11 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
     pendingChatPublishesRef.current = [];
 
     for (const queuedPublish of queuedPublishes) {
-      const didPublish = publishMessage("/app/chat.sendMessage", queuedPublish.body);
+      const didPublish = publishMessage(queuedPublish.destination, queuedPublish.body);
       if (!didPublish) {
         pendingChatPublishesRef.current.push(queuedPublish);
         ensureStompConnection();
         continue;
-      }
-
-      if (queuedPublish.localMessage && !queuedPublish.localEchoAdded) {
-        setMessages((prev) =>
-          appendMessageWithLocalEchoDedupe(prev, queuedPublish.localMessage!),
-        );
       }
     }
   }, [isConnected]);
@@ -211,17 +275,39 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
     return subscribeToTopic(`/topic/room/${roomId}`, (frame) => {
       try {
         const payload = JSON.parse(frame.body) as ChatWirePayload;
+        const eventType = normalizeEventType(payload.messageType);
+
+        if (eventType === "CHAT_REMOVED") {
+          const messageId = readMessageId(payload);
+          if (messageId) {
+            clearModerationTimer(messageId);
+            setMessages((prev) => removeMessageById(prev, messageId));
+          }
+          return;
+        }
+
+        if (eventType && eventType !== "CHAT" && eventType !== "BOT") {
+          return;
+        }
+
         const incoming = mapIncomingMessage(payload, nextId());
-        if (payload.messageType === "BOT") {
+        if (incoming.messageType === "BOT") {
           setBotLoading(false);
         }
         if (!incoming.message.trim()) return;
-        setMessages((prev) => appendMessageWithLocalEchoDedupe(prev, incoming));
+        const shouldShowModerationCheck = incoming.messageType === "CHAT";
+        const messageToRender: ChatMessage = shouldShowModerationCheck
+          ? { ...incoming, moderationStatus: "checking" }
+          : incoming;
+        setMessages((prev) => upsertMessage(prev, messageToRender));
+        if (shouldShowModerationCheck) {
+          scheduleModerationCheckClear(incoming.id);
+        }
       } catch {
         // Malformed message — skip
       }
     });
-  }, [roomId]);
+  }, [clearModerationTimer, roomId, scheduleModerationCheckClear]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -232,7 +318,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
         const incoming = mapIncomingMessage(payload, nextId(), "BOT");
         setBotLoading(false);
         if (!incoming.message.trim()) return;
-        setMessages((prev) => appendMessageWithLocalEchoDedupe(prev, incoming));
+        setMessages((prev) => upsertMessage(prev, incoming));
       } catch {
         // Malformed private bot reply - skip
         setBotLoading(false);
@@ -246,7 +332,18 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
         if (isBotUnavailableAlert(payload)) {
           setBotAlert(payload.message ?? "AI Bot is currently unavailable.");
         } else {
+          const messageId = readMessageId(payload);
+          const alertType = normalizeEventType(payload.type);
+
           setChatAlert(payload.message ?? "Your chat message was blocked.");
+          if (messageId) {
+            clearModerationTimer(messageId);
+            setMessages((prev) => removeMessageById(prev, messageId));
+          }
+          const timeoutMinutes = Number(payload.durationMinutes);
+          if (alertType === "CHAT_TIMEOUT" && Number.isFinite(timeoutMinutes) && timeoutMinutes > 0) {
+            setChatTimeoutUntil(Date.now() + timeoutMinutes * 60_000);
+          }
         }
         setBotLoading(false);
       } catch {
@@ -259,7 +356,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       unsubscribeBotReplies();
       unsubscribeAlerts();
     };
-  }, [roomId]);
+  }, [clearModerationTimer, roomId]);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -273,20 +370,10 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   const sendMessage = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      if (!newMessage.trim() || !roomId) return;
+      if (!newMessage.trim() || !roomId || isChatInputDisabled) return;
 
       const senderName = user?.username || "Anonymous";
       const content = newMessage.trim();
-      const localMessage: ChatMessage | undefined = !sessionId
-        ? {
-            id: `local-${nextId()}`,
-            username: senderName,
-            message: content,
-            timestamp: new Date(),
-            color: CHAT_COLORS[0],
-            messageType: "CHAT",
-          }
-        : undefined;
       setChatAlert(null);
 
       const body = JSON.stringify({
@@ -300,51 +387,43 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       const didPublish = publishMessage("/app/chat.sendMessage", body);
 
       if (!didPublish) {
-        const localEchoAdded = Boolean(localMessage);
-
-        if (localMessage) {
-          setMessages((prev) => appendMessageWithLocalEchoDedupe(prev, localMessage));
-        }
-
         pendingChatPublishesRef.current.push({
+          destination: "/app/chat.sendMessage",
           body,
-          localMessage,
-          localEchoAdded,
         });
         ensureStompConnection();
         setNewMessage("");
         return;
       }
 
-      if (localMessage) {
-        setMessages((prev) => appendMessageWithLocalEchoDedupe(prev, localMessage));
-      }
-
       setNewMessage("");
     },
-    [newMessage, roomId, sessionId, user],
+    [isChatInputDisabled, newMessage, roomId, sessionId, user],
   );
 
   const askBot = useCallback(
     (question: string) => {
       const trimmedQuestion = question.trim();
-      if (!trimmedQuestion || !roomId || !isConnected || botLoading) return false;
+      if (!trimmedQuestion || !roomId || botLoading || isChatInputDisabled) return false;
 
-      const didPublish = publishMessage(
-        "/app/chat.askBot",
-        JSON.stringify({
-          roomId,
-          sessionId: sessionId ?? undefined,
-          userId: user?.userId,
-          senderName: user?.username || "Anonymous",
-          question: trimmedQuestion,
-          content: trimmedQuestion,
-          message: trimmedQuestion,
-        }),
-      );
+      const body = JSON.stringify({
+        roomId,
+        sessionId: sessionId ?? undefined,
+        userId: user?.userId,
+        senderName: user?.username || "Anonymous",
+        question: trimmedQuestion,
+        content: trimmedQuestion,
+        message: trimmedQuestion,
+      });
+
+      const didPublish = publishMessage("/app/chat.askBot", body);
 
       if (!didPublish) {
-        return false;
+        pendingChatPublishesRef.current.push({
+          destination: "/app/chat.askBot",
+          body,
+        });
+        ensureStompConnection();
       }
 
       setBotAlert(null);
@@ -352,7 +431,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       setNewMessage("");
       return true;
     },
-    [botLoading, roomId, sessionId, user, isConnected],
+    [botLoading, isChatInputDisabled, roomId, sessionId, user],
   );
 
   const clearBotAlert = useCallback(() => {
@@ -376,5 +455,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
     chatAlert,
     clearChatAlert,
     isConnected,
+    isChatInputDisabled,
+    chatTimeoutRemainingSeconds,
   };
 }
