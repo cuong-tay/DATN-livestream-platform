@@ -127,7 +127,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
 
   const isBotSubmit = isBotMode || BOT_PREFIX_PATTERN.test(newMessage);
   const chatTimeoutMinutes = Math.max(1, Math.ceil(chatTimeoutRemainingSeconds / 60));
-  const isInputDisabled = !roomId || isChatInputDisabled;
+  const isInputDisabled = !roomId || !user || !isConnected || isChatInputDisabled;
   const isSubmitDisabled = isInputDisabled || !newMessage.trim() || (isBotSubmit && botLoading);
 
   return (
@@ -282,7 +282,9 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder={
-                isChatInputDisabled
+                !user
+                  ? t("errors.unauthorized")
+                  : isChatInputDisabled
                   ? t("chat.timeoutPlaceholder", { minutes: chatTimeoutMinutes })
                   : isConnected
                   ? isBotMode

@@ -60,6 +60,19 @@ export function hasHttpStatus(error: unknown, status: number): boolean {
   return axiosError.response?.status === status;
 }
 
+function shouldForceLogout(error: AxiosError): boolean {
+  const status = error.response?.status;
+  if (status === 401) return true;
+  if (status !== 403 || error.config?.skipAuth) return false;
+
+  const url = error.config?.url ?? "";
+  return (
+    url.includes("/auth/me") ||
+    url.includes("/notifications") ||
+    url.includes("/rooms/me")
+  );
+}
+
 // ── Request interceptor: gắn Bearer token vào mọi request ────────────────
 httpClient.interceptors.request.use(
   (config) => {
@@ -171,10 +184,11 @@ httpClient.interceptors.response.use(
       });
     }
 
-    if (error.response?.status === 401) {
-      // Token hết hạn hoặc không hợp lệ → clear & reload
+    if (shouldForceLogout(axiosError)) {
+      // Token hết hạn hoặc không còn quyền với phiên hiện tại -> clear session
       localStorage.removeItem("accessToken");
       localStorage.removeItem("refreshToken");
+      localStorage.removeItem("authUser");
 
       // Dispatch custom event để AuthContext có thể lắng nghe
       window.dispatchEvent(new CustomEvent("auth:logout"));

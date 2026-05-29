@@ -5,10 +5,16 @@ import { chatDebug, chatDebugError, chatDebugWarn } from "@/shared/lib/chatDebug
 
 type ConnectionState = "disconnected" | "connecting" | "connected";
 type ConnectionListener = (state: ConnectionState) => void;
-type SubscriptionFactory = () => StompSubscription | null;
 type PublishHeaders = Record<string, string>;
 
 type SubscribeHandler = (message: IMessage) => void;
+
+interface SubscriptionRecord {
+  destination: string;
+  handler: SubscribeHandler;
+  subscription: StompSubscription | null;
+  isDisposed: boolean;
+}
 
 const IDLE_DISCONNECT_MS = 15_000;
 const AUTHORIZATION_HEADER = "Authorization";
@@ -18,7 +24,7 @@ let connectionState: ConnectionState = "disconnected";
 let activeSubscriptions = 0;
 let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const connectionListeners = new Set<ConnectionListener>();
-const pendingSubscriptions: SubscriptionFactory[] = [];
+const subscriptionRecords = new Set<SubscriptionRecord>();
 
 function buildAuthorizationHeaders(): PublishHeaders {
   const token = localStorage.getItem("accessToken");
@@ -37,6 +43,23 @@ function setConnectionState(nextState: ConnectionState) {
   if (connectionState === nextState) return;
   connectionState = nextState;
   connectionListeners.forEach((listener) => listener(nextState));
+}
+
+function subscribeRecord(activeClient: Client, record: SubscriptionRecord) {
+  if (!activeClient.connected || record.isDisposed) {
+    return;
+  }
+
+  if (record.subscription) {
+    try {
+      record.subscription.unsubscribe();
+    } catch {
+      // The old subscription can already be invalid after reconnect.
+    }
+  }
+
+  chatDebug("stomp", "subscribe", { destination: record.destination });
+  record.subscription = activeClient.subscribe(record.destination, record.handler);
 }
 
 function ensureClient(): Client {
@@ -62,10 +85,7 @@ function ensureClient(): Client {
   client.onConnect = () => {
     chatDebug("stomp", "connected");
     setConnectionState("connected");
-    while (pendingSubscriptions.length > 0) {
-      const subscribe = pendingSubscriptions.shift();
-      subscribe?.();
-    }
+    subscriptionRecords.forEach((record) => subscribeRecord(client!, record));
   };
 
   client.onDisconnect = () => {
@@ -146,24 +166,18 @@ export function subscribeToTopic(destination: string, handler: SubscribeHandler)
     disconnectTimer = null;
   }
 
-  let subscription: StompSubscription | null = null;
-  let isDisposed = false;
-
-  const subscribeNow: SubscriptionFactory = () => {
-    if (!activeClient.connected || isDisposed) {
-      return null;
-    }
-
-    chatDebug("stomp", "subscribe", { destination });
-    subscription = activeClient.subscribe(destination, handler);
-    return subscription;
+  const record: SubscriptionRecord = {
+    destination,
+    handler,
+    subscription: null,
+    isDisposed: false,
   };
+  subscriptionRecords.add(record);
 
   if (activeClient.connected) {
-    subscribeNow();
+    subscribeRecord(activeClient, record);
   } else {
     chatDebug("stomp", "queue subscribe until connected", { destination });
-    pendingSubscriptions.push(subscribeNow);
     if (!activeClient.active) {
       setConnectionState("connecting");
       activeClient.activate();
@@ -171,10 +185,12 @@ export function subscribeToTopic(destination: string, handler: SubscribeHandler)
   }
 
   return () => {
-    isDisposed = true;
-    if (subscription) {
+    record.isDisposed = true;
+    subscriptionRecords.delete(record);
+    if (record.subscription) {
       chatDebug("stomp", "unsubscribe", { destination });
-      subscription.unsubscribe();
+      record.subscription.unsubscribe();
+      record.subscription = null;
     }
 
     activeSubscriptions = Math.max(0, activeSubscriptions - 1);
