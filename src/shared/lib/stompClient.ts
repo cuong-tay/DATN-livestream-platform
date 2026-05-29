@@ -209,7 +209,7 @@ export function publishMessage(
     return false;
   }
 
-  chatDebug("stomp", "publish", { destination });
+  chatDebug("stomp", "publish", { destination, hasToken: hasAccessToken() });
   client.publish({
     destination,
     body,

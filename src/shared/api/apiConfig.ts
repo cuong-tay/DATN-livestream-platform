@@ -26,17 +26,32 @@ function normalizeAbsoluteBaseUrl(rawValue: string | undefined, fallbackUrl: str
   return trimTrailingSlashes(new URL(value).toString());
 }
 
+function buildSocketPath(apiBaseUrl: string): string {
+  const apiUrl = new URL(apiBaseUrl);
+  const apiPath = trimTrailingSlashes(apiUrl.pathname || "");
+  return `${apiPath || ""}/ws`;
+}
+
 function buildWsUrl(rawValue: string | undefined, apiBaseUrl: string): string {
+  const apiUrl = new URL(apiBaseUrl);
+
   if (rawValue?.trim()) {
     const socketUrl = new URL(trimTrailingSlashes(rawValue.trim()));
     socketUrl.protocol =
       socketUrl.protocol === "https:" || socketUrl.protocol === "wss:" ? "wss:" : "ws:";
+
+    if (
+      socketUrl.host === apiUrl.host &&
+      (!socketUrl.pathname || socketUrl.pathname === "/" || socketUrl.pathname === "/ws")
+    ) {
+      socketUrl.pathname = buildSocketPath(apiBaseUrl);
+    }
+
     return trimTrailingSlashes(socketUrl.toString());
   }
 
-  const apiUrl = new URL(apiBaseUrl);
   apiUrl.protocol = apiUrl.protocol === "https:" ? "wss:" : "ws:";
-  apiUrl.pathname = "/ws";
+  apiUrl.pathname = buildSocketPath(apiBaseUrl);
   apiUrl.search = "";
   apiUrl.hash = "";
 
@@ -44,16 +59,25 @@ function buildWsUrl(rawValue: string | undefined, apiBaseUrl: string): string {
 }
 
 function buildSockJsUrl(rawValue: string | undefined, apiBaseUrl: string): string {
+  const apiUrl = new URL(apiBaseUrl);
+
   if (rawValue?.trim()) {
     const socketUrl = new URL(trimTrailingSlashes(rawValue.trim()));
     socketUrl.protocol =
       socketUrl.protocol === "https:" || socketUrl.protocol === "wss:" ? "https:" : "http:";
+
+    if (
+      socketUrl.host === apiUrl.host &&
+      (!socketUrl.pathname || socketUrl.pathname === "/" || socketUrl.pathname === "/ws")
+    ) {
+      socketUrl.pathname = buildSocketPath(apiBaseUrl);
+    }
+
     return trimTrailingSlashes(socketUrl.toString());
   }
 
-  const apiUrl = new URL(apiBaseUrl);
   apiUrl.protocol = apiUrl.protocol === "https:" ? "https:" : "http:";
-  apiUrl.pathname = "/ws";
+  apiUrl.pathname = buildSocketPath(apiBaseUrl);
   apiUrl.search = "";
   apiUrl.hash = "";
 
