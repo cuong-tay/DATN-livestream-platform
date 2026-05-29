@@ -49,6 +49,7 @@ interface PendingChatPublish {
 }
 
 const AI_MODERATION_CHECK_MS = 7_000;
+const LOCAL_MESSAGE_TTL_MS = 15_000;
 type BrowserTimerId = number;
 
 /** Pick a random chat colour for incoming messages */
@@ -90,6 +91,53 @@ function upsertMessage(currentMessages: ChatMessage[], incomingMessage: ChatMess
 
 function removeMessageById(currentMessages: ChatMessage[], messageId: string): ChatMessage[] {
   return currentMessages.filter((message) => message.id !== messageId);
+}
+
+function replaceMatchingLocalMessage(
+  currentMessages: ChatMessage[],
+  incomingMessage: ChatMessage,
+): { messages: ChatMessage[]; replacedId?: string } {
+  const incomingText = incomingMessage.message.trim();
+  const incomingUsername = incomingMessage.username.trim();
+  const incomingTime = incomingMessage.timestamp.getTime();
+
+  const matchingLocalIndex = currentMessages.findIndex((message) => {
+    if (!message.id.startsWith("local-")) return false;
+    if (message.message.trim() !== incomingText) return false;
+    if (message.username.trim() !== incomingUsername) return false;
+
+    return Math.abs(incomingTime - message.timestamp.getTime()) <= LOCAL_MESSAGE_TTL_MS;
+  });
+
+  if (matchingLocalIndex === -1) {
+    return { messages: upsertMessage(currentMessages, incomingMessage) };
+  }
+
+  const replacedId = currentMessages[matchingLocalIndex].id;
+  const nextMessages = [...currentMessages];
+  nextMessages[matchingLocalIndex] = {
+    ...incomingMessage,
+    color: currentMessages[matchingLocalIndex].color || incomingMessage.color,
+  };
+
+  return { messages: nextMessages.slice(-CHAT_MAX_MESSAGES), replacedId };
+}
+
+function removeMatchingLocalMessage(
+  currentMessages: ChatMessage[],
+  alert: ChatAlertPayload,
+  senderName?: string,
+): ChatMessage[] {
+  const removedContent = alert.removedContent?.trim();
+  if (!removedContent) return currentMessages;
+
+  return currentMessages.filter((message) => {
+    if (!message.id.startsWith("local-")) return true;
+    if (message.message.trim() !== removedContent) return true;
+    if (senderName && message.username.trim() !== senderName.trim()) return true;
+
+    return false;
+  });
 }
 
 /** Map a REST history message to the UI ChatMessage shape */
@@ -299,7 +347,13 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
         const messageToRender: ChatMessage = shouldShowModerationCheck
           ? { ...incoming, moderationStatus: "checking" }
           : incoming;
-        setMessages((prev) => upsertMessage(prev, messageToRender));
+        setMessages((prev) => {
+          const result = replaceMatchingLocalMessage(prev, messageToRender);
+          if (result.replacedId) {
+            clearModerationTimer(result.replacedId);
+          }
+          return result.messages;
+        });
         if (shouldShowModerationCheck) {
           scheduleModerationCheckClear(incoming.id);
         }
@@ -340,6 +394,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
             clearModerationTimer(messageId);
             setMessages((prev) => removeMessageById(prev, messageId));
           }
+          setMessages((prev) => removeMatchingLocalMessage(prev, payload, user?.username));
           const timeoutMinutes = Number(payload.durationMinutes);
           if (alertType === "CHAT_TIMEOUT" && Number.isFinite(timeoutMinutes) && timeoutMinutes > 0) {
             setChatTimeoutUntil(Date.now() + timeoutMinutes * 60_000);
@@ -356,7 +411,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       unsubscribeBotReplies();
       unsubscribeAlerts();
     };
-  }, [clearModerationTimer, roomId]);
+  }, [clearModerationTimer, roomId, user?.username]);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -374,7 +429,18 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
 
       const senderName = user?.username || "Anonymous";
       const content = newMessage.trim();
+      const localMessage: ChatMessage = {
+        id: `local-${nextId()}`,
+        username: senderName,
+        message: content,
+        timestamp: new Date(),
+        color: CHAT_COLORS[0],
+        messageType: "CHAT",
+        moderationStatus: "checking",
+      };
       setChatAlert(null);
+      setMessages((prev) => upsertMessage(prev, localMessage));
+      scheduleModerationCheckClear(localMessage.id);
 
       const body = JSON.stringify({
         roomId,
@@ -398,7 +464,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
 
       setNewMessage("");
     },
-    [isChatInputDisabled, newMessage, roomId, sessionId, user],
+    [isChatInputDisabled, newMessage, roomId, scheduleModerationCheckClear, sessionId, user],
   );
 
   const askBot = useCallback(
