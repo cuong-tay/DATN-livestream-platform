@@ -49,18 +49,7 @@ interface PendingChatPublish {
   body: string;
 }
 
-interface ChatSyncEvent {
-  type: "LOCAL_CHAT" | "REMOVE_LOCAL_CHAT";
-  roomId: number;
-  sourceClientId: string;
-  message?: ChatMessage;
-  removedContent?: string;
-  senderName?: string;
-}
-
 const AI_MODERATION_CHECK_MS = 7_000;
-const LOCAL_MESSAGE_TTL_MS = 15_000;
-const CHAT_SYNC_CHANNEL = "live-chat-room-sync";
 type BrowserTimerId = number;
 
 /** Pick a random chat colour for incoming messages */
@@ -133,53 +122,6 @@ function removeMessageById(currentMessages: ChatMessage[], messageId: string): C
   return currentMessages.filter((message) => message.id !== messageId);
 }
 
-function replaceMatchingLocalMessage(
-  currentMessages: ChatMessage[],
-  incomingMessage: ChatMessage,
-): { messages: ChatMessage[]; replacedId?: string } {
-  const incomingText = incomingMessage.message.trim();
-  const incomingUsername = incomingMessage.username.trim();
-  const incomingTime = incomingMessage.timestamp.getTime();
-
-  const matchingLocalIndex = currentMessages.findIndex((message) => {
-    if (!message.id.startsWith("local-")) return false;
-    if (message.message.trim() !== incomingText) return false;
-    if (message.username.trim() !== incomingUsername) return false;
-
-    return Math.abs(incomingTime - message.timestamp.getTime()) <= LOCAL_MESSAGE_TTL_MS;
-  });
-
-  if (matchingLocalIndex === -1) {
-    return { messages: upsertMessage(currentMessages, incomingMessage) };
-  }
-
-  const replacedId = currentMessages[matchingLocalIndex].id;
-  const nextMessages = [...currentMessages];
-  nextMessages[matchingLocalIndex] = {
-    ...incomingMessage,
-    color: currentMessages[matchingLocalIndex].color || incomingMessage.color,
-  };
-
-  return { messages: nextMessages.slice(-CHAT_MAX_MESSAGES), replacedId };
-}
-
-function removeMatchingLocalMessage(
-  currentMessages: ChatMessage[],
-  alert: ChatAlertPayload,
-  senderName?: string,
-): ChatMessage[] {
-  const removedContent = alert.removedContent?.trim();
-  if (!removedContent) return currentMessages;
-
-  return currentMessages.filter((message) => {
-    if (!message.id.startsWith("local-")) return true;
-    if (message.message.trim() !== removedContent) return true;
-    if (senderName && message.username.trim() !== senderName.trim()) return true;
-
-    return false;
-  });
-}
-
 /** Map a REST history message to the UI ChatMessage shape */
 function mapHistoryMessage(msg: ChatMessageResponse, idx: number): ChatMessage {
   const rawTimestamp = msg.timestamp ?? msg.createdAt;
@@ -227,9 +169,10 @@ function isBotUnavailableAlert(payload: ChatAlertPayload): boolean {
 
 /**
  * Real-time chat via STOMP over SockJS.
- * - On mount: fetches recent messages via REST, then connects WebSocket.
- * - Publishes to `/app/chat.sendMessage`.
- * - Subscribes to `/topic/room/{roomId}`.
+ * Source of truth:
+ * - History: GET `/rooms/{roomId}/recent-chat`.
+ * - Realtime: `/topic/room/{roomId}` with backend-created `messageId`.
+ * - Send: `/app/chat.sendMessage` with `{ roomId, senderName, content }`.
  */
 export function useStompChat(roomId: number | null, sessionId?: number | null): UseStompChatReturn {
   const { user } = useAuth();
@@ -247,8 +190,6 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   const seqRef = useRef(0);
   const pendingChatPublishesRef = useRef<PendingChatPublish[]>([]);
   const moderationTimersRef = useRef(new Map<string, BrowserTimerId>());
-  const syncClientIdRef = useRef(`chat-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  const chatSyncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const nextId = () => {
     seqRef.current += 1;
@@ -288,19 +229,6 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
     moderationTimersRef.current.clear();
   }, []);
 
-  const broadcastChatSync = useCallback(
-    (event: Omit<ChatSyncEvent, "roomId" | "sourceClientId">) => {
-      if (!roomId) return;
-
-      chatSyncChannelRef.current?.postMessage({
-        ...event,
-        roomId,
-        sourceClientId: syncClientIdRef.current,
-      } satisfies ChatSyncEvent);
-    },
-    [roomId],
-  );
-
   const chatTimeoutRemainingSeconds = chatTimeoutUntil
     ? Math.max(0, Math.ceil((chatTimeoutUntil - now) / 1000))
     : 0;
@@ -316,7 +244,9 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
     setChatTimeoutUntil(null);
     setNow(Date.now());
 
-    if (!roomId) return;
+    if (!roomId) {
+      return;
+    }
 
     roomService
       .getRecentChat(roomId)
@@ -338,49 +268,6 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   }, [clearAllModerationTimers, roomId]);
 
   useEffect(() => clearAllModerationTimers, [clearAllModerationTimers]);
-
-  useEffect(() => {
-    if (!roomId || typeof BroadcastChannel === "undefined") return;
-
-    const channel = new BroadcastChannel(CHAT_SYNC_CHANNEL);
-    chatSyncChannelRef.current = channel;
-
-    channel.onmessage = (event: MessageEvent<ChatSyncEvent>) => {
-      const payload = event.data;
-      if (!payload || payload.roomId !== roomId || payload.sourceClientId === syncClientIdRef.current) {
-        return;
-      }
-
-      if (payload.type === "LOCAL_CHAT" && payload.message) {
-        const syncedMessage: ChatMessage = {
-          ...payload.message,
-          timestamp: new Date(payload.message.timestamp),
-        };
-        setMessages((prev) => upsertMessage(prev, syncedMessage));
-        if (syncedMessage.moderationStatus === "checking") {
-          scheduleModerationCheckClear(syncedMessage.id);
-        }
-        return;
-      }
-
-      if (payload.type === "REMOVE_LOCAL_CHAT" && payload.removedContent) {
-        setMessages((prev) =>
-          removeMatchingLocalMessage(
-            prev,
-            { removedContent: payload.removedContent },
-            payload.senderName,
-          ),
-        );
-      }
-    };
-
-    return () => {
-      channel.close();
-      if (chatSyncChannelRef.current === channel) {
-        chatSyncChannelRef.current = null;
-      }
-    };
-  }, [roomId, scheduleModerationCheckClear]);
 
   useEffect(() => {
     if (!chatTimeoutUntil) return;
@@ -460,6 +347,11 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
           return;
         }
 
+        if (eventType === "CHAT" && !readMessageId(payload)) {
+          chatDebugWarn("useStompChat", "CHAT event without messageId", summarizeChatPayload(payload));
+          return;
+        }
+
         const incoming = mapIncomingMessage(payload, nextId());
         if (incoming.messageType === "BOT") {
           setBotLoading(false);
@@ -469,13 +361,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
         const messageToRender: ChatMessage = shouldShowModerationCheck
           ? { ...incoming, moderationStatus: "checking" }
           : incoming;
-        setMessages((prev) => {
-          const result = replaceMatchingLocalMessage(prev, messageToRender);
-          if (result.replacedId) {
-            clearModerationTimer(result.replacedId);
-          }
-          return result.messages;
-        });
+        setMessages((prev) => upsertMessage(prev, messageToRender));
         if (shouldShowModerationCheck) {
           scheduleModerationCheckClear(incoming.id);
         }
@@ -527,14 +413,6 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
             clearModerationTimer(messageId);
             setMessages((prev) => removeMessageById(prev, messageId));
           }
-          setMessages((prev) => removeMatchingLocalMessage(prev, payload, user?.username));
-          if (payload.removedContent) {
-            broadcastChatSync({
-              type: "REMOVE_LOCAL_CHAT",
-              removedContent: payload.removedContent,
-              senderName: user?.username,
-            });
-          }
           const timeoutMinutes = Number(payload.durationMinutes);
           if (alertType === "CHAT_TIMEOUT" && Number.isFinite(timeoutMinutes) && timeoutMinutes > 0) {
             setChatTimeoutUntil(Date.now() + timeoutMinutes * 60_000);
@@ -555,7 +433,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       unsubscribeBotReplies();
       unsubscribeAlerts();
     };
-  }, [broadcastChatSync, clearModerationTimer, roomId, user?.username]);
+  }, [clearModerationTimer, roomId]);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -573,22 +451,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
 
       const senderName = user?.username || "Anonymous";
       const content = newMessage.trim();
-      const localMessage: ChatMessage = {
-        id: `local-${nextId()}`,
-        username: senderName,
-        message: content,
-        timestamp: new Date(),
-        color: CHAT_COLORS[0],
-        messageType: "CHAT",
-        moderationStatus: "checking",
-      };
       setChatAlert(null);
-      setMessages((prev) => upsertMessage(prev, localMessage));
-      scheduleModerationCheckClear(localMessage.id);
-      broadcastChatSync({
-        type: "LOCAL_CHAT",
-        message: localMessage,
-      });
 
       const body = JSON.stringify({
         roomId,
@@ -624,7 +487,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       });
       setNewMessage("");
     },
-    [broadcastChatSync, isChatInputDisabled, newMessage, roomId, scheduleModerationCheckClear, sessionId, user],
+    [isChatInputDisabled, newMessage, roomId, sessionId, user],
   );
 
   const askBot = useCallback(
