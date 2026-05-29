@@ -37,6 +37,34 @@ const EMOJI_GROUPS = [
   },
 ] as const;
 
+export function InactiveChatBoard() {
+  const { t } = useI18n();
+
+  return (
+    <div className="flex h-full flex-col bg-[#18181b]">
+      <div className="border-b border-[#2d2d31] p-3">
+        <div className="flex items-center justify-between">
+          <h3 className="flex items-center gap-2 font-semibold">
+            {t("chat.title")}
+            <WifiOff className="h-3.5 w-3.5 text-gray-500" />
+          </h3>
+        </div>
+      </div>
+      <div className="flex flex-1 items-center justify-center p-4 text-center">
+        <div>
+          <p className="text-sm font-semibold text-gray-300">{t("chat.inactiveTitle")}</p>
+          <p className="mt-1 max-w-[260px] text-xs text-gray-500">{t("chat.inactiveDescription")}</p>
+        </div>
+      </div>
+      <div className="border-t border-[#2d2d31] p-3">
+        <div className="rounded border border-[#464649] bg-[#2d2d31] p-2 text-center text-sm text-gray-400">
+          {t("chat.inactiveInput")}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
   const { user } = useAuth();
   const { t } = useI18n();

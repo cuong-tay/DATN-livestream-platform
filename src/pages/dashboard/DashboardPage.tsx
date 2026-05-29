@@ -51,7 +51,7 @@ import {
 import { toast } from "sonner";
 import { VideoPlayer } from "@/features/play-stream";
 import { ChatModerationPanel } from "@/features/chat-moderation/ui/ChatModerationPanel";
-import { ChatBoard } from "@/widgets/chat-board";
+import { ChatBoard, InactiveChatBoard } from "@/widgets/chat-board";
 import { Link } from "react-router-dom";
 import { useI18n, useI18nFormatters } from "@/shared/i18n";
 
@@ -1002,7 +1002,11 @@ export function DashboardPage() {
          </div>
          <div className="flex-1 overflow-hidden">
             {/* Tái sử dụng component ChatBoard ở chế độ Dashboard */}
-            <ChatBoard roomId={room.roomId} sessionId={room.activeSessionId ?? null} />
+            {isLive ? (
+              <ChatBoard roomId={room.roomId} sessionId={room.activeSessionId ?? null} />
+            ) : (
+              <InactiveChatBoard />
+            )}
          </div>
       </div>
     </div>
