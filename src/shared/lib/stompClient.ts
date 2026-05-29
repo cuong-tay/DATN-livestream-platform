@@ -1,6 +1,7 @@
 import { Client, type IMessage, type StompSubscription } from "@stomp/stompjs";
 import SockJS from "sockjs-client";
 import { SOCKJS_URL } from "@/shared/api/apiConfig";
+import { chatDebug, chatDebugError, chatDebugWarn } from "@/shared/lib/chatDebug";
 
 type ConnectionState = "disconnected" | "connecting" | "connected";
 type ConnectionListener = (state: ConnectionState) => void;
@@ -24,6 +25,14 @@ function buildAuthorizationHeaders(): PublishHeaders {
   return token ? { [AUTHORIZATION_HEADER]: `Bearer ${token}` } : {};
 }
 
+function hasAccessToken(): boolean {
+  try {
+    return Boolean(localStorage.getItem("accessToken"));
+  } catch {
+    return false;
+  }
+}
+
 function setConnectionState(nextState: ConnectionState) {
   if (connectionState === nextState) return;
   connectionState = nextState;
@@ -36,7 +45,10 @@ function ensureClient(): Client {
   }
 
   client = new Client({
-    webSocketFactory: () => new SockJS(SOCKJS_URL),
+    webSocketFactory: () => {
+      chatDebug("stomp", "open SockJS socket", { url: SOCKJS_URL });
+      return new SockJS(SOCKJS_URL);
+    },
     reconnectDelay: 5_000,
     heartbeatIncoming: 10_000,
     heartbeatOutgoing: 10_000,
@@ -44,9 +56,11 @@ function ensureClient(): Client {
 
   client.beforeConnect = async () => {
     client!.connectHeaders = buildAuthorizationHeaders();
+    chatDebug("stomp", "connect", { hasToken: hasAccessToken() });
   };
 
   client.onConnect = () => {
+    chatDebug("stomp", "connected");
     setConnectionState("connected");
     while (pendingSubscriptions.length > 0) {
       const subscribe = pendingSubscriptions.shift();
@@ -55,14 +69,24 @@ function ensureClient(): Client {
   };
 
   client.onDisconnect = () => {
+    chatDebug("stomp", "disconnected");
     setConnectionState("disconnected");
   };
 
-  client.onWebSocketClose = () => {
+  client.onWebSocketClose = (event) => {
+    chatDebugWarn("stomp", "websocket closed", {
+      code: event.code,
+      reason: event.reason,
+      wasClean: event.wasClean,
+    });
     setConnectionState("disconnected");
   };
 
-  client.onStompError = () => {
+  client.onStompError = (frame) => {
+    chatDebugError("stomp", "broker error", {
+      headers: frame.headers,
+      body: frame.body,
+    });
     setConnectionState("disconnected");
   };
 
@@ -130,6 +154,7 @@ export function subscribeToTopic(destination: string, handler: SubscribeHandler)
       return null;
     }
 
+    chatDebug("stomp", "subscribe", { destination });
     subscription = activeClient.subscribe(destination, handler);
     return subscription;
   };
@@ -137,6 +162,7 @@ export function subscribeToTopic(destination: string, handler: SubscribeHandler)
   if (activeClient.connected) {
     subscribeNow();
   } else {
+    chatDebug("stomp", "queue subscribe until connected", { destination });
     pendingSubscriptions.push(subscribeNow);
     if (!activeClient.active) {
       setConnectionState("connecting");
@@ -147,6 +173,7 @@ export function subscribeToTopic(destination: string, handler: SubscribeHandler)
   return () => {
     isDisposed = true;
     if (subscription) {
+      chatDebug("stomp", "unsubscribe", { destination });
       subscription.unsubscribe();
     }
 
@@ -161,10 +188,12 @@ export function publishMessage(
   headers: PublishHeaders = {},
 ): boolean {
   if (!client?.connected) {
+    chatDebugWarn("stomp", "publish requested while disconnected", { destination });
     ensureStompConnection();
     return false;
   }
 
+  chatDebug("stomp", "publish", { destination });
   client.publish({
     destination,
     body,

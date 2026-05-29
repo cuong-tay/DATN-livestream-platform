@@ -156,7 +156,7 @@ export function Header() {
         <div className="flex items-center gap-3">
           {isAuthenticated ? (
             <Link 
-              to={hasActiveStream ? "/dashboard" : "/livestream/new"}
+              to="/dashboard"
               className="p-2 hover:bg-accent hover:text-accent-foreground rounded text-foreground transition-colors" 
               title={hasActiveStream ? t("header.activeStreamTitle") : t("header.goLive")}
             >

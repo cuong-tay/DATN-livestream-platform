@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router-dom";
+﻿import { Navigate, createBrowserRouter } from "react-router-dom";
 import { HomePage } from "@/pages/home/HomePage";
 import { StreamPage } from "@/pages/stream/StreamPage";
 import { VodPage } from "@/pages/vod/VodPage";
@@ -29,7 +29,7 @@ export const router = createBrowserRouter([
         element: <ProtectedRoute />,
         children: [
           { path: "dashboard", Component: DashboardPage },
-          { path: "livestream/new", Component: DashboardPage }, // Cả 2 đều dẫn đến trang cấu hình stream
+          { path: "livestream/new", element: <Navigate to="/dashboard" replace /> },
           { path: "settings", Component: SettingsPage },
           { path: "reports/me", Component: MyReportsPage },
         ],

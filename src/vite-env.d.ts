@@ -9,6 +9,7 @@ interface ImportMetaEnv {
 	readonly VITE_AVATAR_UPLOAD_FIELD?: string;
 	readonly VITE_DEBUG_STREAM?: string;
 	readonly VITE_DEBUG_VOD_API?: string;
+	readonly VITE_DEBUG_CHAT?: string;
 }
 
 interface ImportMeta {

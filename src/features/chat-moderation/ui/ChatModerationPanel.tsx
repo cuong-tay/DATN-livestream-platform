@@ -13,6 +13,7 @@ import { toast } from "sonner";
 
 import { roomService, type BlockedWord } from "@/shared/api/room.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
+import { chatDebug, chatDebugWarn } from "@/shared/lib/chatDebug";
 import {
   Badge,
   Button,
@@ -55,9 +56,18 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
   const fetchBlockedWords = async () => {
     setIsLoading(true);
     try {
+      chatDebug("ChatModerationPanel", "load blocked words", { roomId });
       const response = await roomService.getBlockedWords(roomId);
+      chatDebug("ChatModerationPanel", "loaded blocked words", {
+        roomId,
+        count: response.data.length,
+      });
       setItems(response.data);
     } catch (error) {
+      chatDebugWarn("ChatModerationPanel", "failed to load blocked words", {
+        roomId,
+        error: extractApiErrorMessage(error),
+      });
       toast.error(`Khong tai duoc danh sach tu chan: ${extractApiErrorMessage(error)}`);
     } finally {
       setIsLoading(false);
@@ -94,11 +104,21 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
 
     setIsSaving(true);
     try {
+      chatDebug("ChatModerationPanel", "create blocked word", {
+        roomId,
+        word: value.word,
+        enabled: value.enabled,
+      });
       const response = await roomService.createBlockedWord(roomId, value);
       setItems((current) => [response.data, ...current]);
       setDraft(initialDraft);
       toast.success("Da them tu khoa chan.");
     } catch (error) {
+      chatDebugWarn("ChatModerationPanel", "failed to create blocked word", {
+        roomId,
+        word: value.word,
+        error: extractApiErrorMessage(error),
+      });
       toast.error(extractApiErrorMessage(error));
     } finally {
       setIsSaving(false);
@@ -124,11 +144,22 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
 
     setBusyId(itemId);
     try {
+      chatDebug("ChatModerationPanel", "update blocked word", {
+        roomId,
+        itemId,
+        word: value.word,
+        enabled: value.enabled,
+      });
       const response = await roomService.updateBlockedWord(roomId, itemId, value);
       setItems((current) => current.map((item) => (item.id === itemId ? response.data : item)));
       cancelEdit();
       toast.success("Da cap nhat tu khoa chan.");
     } catch (error) {
+      chatDebugWarn("ChatModerationPanel", "failed to update blocked word", {
+        roomId,
+        itemId,
+        error: extractApiErrorMessage(error),
+      });
       toast.error(extractApiErrorMessage(error));
     } finally {
       setBusyId(null);
@@ -138,12 +169,23 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
   const handleToggle = async (item: BlockedWord, enabled: boolean) => {
     setBusyId(item.id);
     try {
+      chatDebug("ChatModerationPanel", "toggle blocked word", {
+        roomId,
+        itemId: item.id,
+        word: item.word,
+        enabled,
+      });
       const response = await roomService.updateBlockedWord(roomId, item.id, {
         word: item.word,
         enabled,
       });
       setItems((current) => current.map((row) => (row.id === item.id ? response.data : row)));
     } catch (error) {
+      chatDebugWarn("ChatModerationPanel", "failed to toggle blocked word", {
+        roomId,
+        itemId: item.id,
+        error: extractApiErrorMessage(error),
+      });
       toast.error(extractApiErrorMessage(error));
     } finally {
       setBusyId(null);
@@ -155,11 +197,21 @@ export function ChatModerationPanel({ roomId }: ChatModerationPanelProps) {
 
     setBusyId(item.id);
     try {
+      chatDebug("ChatModerationPanel", "delete blocked word", {
+        roomId,
+        itemId: item.id,
+        word: item.word,
+      });
       await roomService.deleteBlockedWord(roomId, item.id);
       setItems((current) => current.filter((row) => row.id !== item.id));
       if (editingId === item.id) cancelEdit();
       toast.success("Da xoa tu khoa chan.");
     } catch (error) {
+      chatDebugWarn("ChatModerationPanel", "failed to delete blocked word", {
+        roomId,
+        itemId: item.id,
+        error: extractApiErrorMessage(error),
+      });
       toast.error(extractApiErrorMessage(error));
     } finally {
       setBusyId(null);

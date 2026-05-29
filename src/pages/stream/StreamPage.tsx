@@ -2,7 +2,7 @@
 import { Heart, Share2, Flag, Users, ChevronDown, Loader2, AlertCircle, DollarSign } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { VideoPlayer, useWatchRoom } from "@/features/play-stream";
-import { ChatBoard, InactiveChatBoard } from "@/widgets/chat-board";
+import { ChatBoard } from "@/widgets/chat-board";
 import { DonateModal } from "@/features/donate";
 import { ReportModal } from "@/features/report";
 import { SessionReactionPill } from "@/features/reactions";
@@ -303,11 +303,7 @@ export function StreamPage() {
           {/* â”€â”€ Chat (desktop) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div className="h-[calc(100vh-var(--app-header-offset))] sticky top-[var(--app-header-offset)] hidden lg:block">
             {isDesktopChatLayout && (
-              isLive ? (
-                <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
-              ) : (
-                <InactiveChatBoard />
-              )
+              <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
             )}
           </div>
         </div>
@@ -315,11 +311,7 @@ export function StreamPage() {
         {/* Chat (mobile) */}
         <div className="lg:hidden border-t border-[#2d2d31] h-[500px]">
           {!isDesktopChatLayout && (
-            isLive ? (
-              <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
-            ) : (
-              <InactiveChatBoard />
-            )
+            <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
           )}
         </div>
       </div>
