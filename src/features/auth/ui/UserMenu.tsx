@@ -42,7 +42,7 @@ export function UserMenu({ user }: UserMenuProps) {
   const { t, language, setLanguage } = useI18n();
   const { formatNumber } = useI18nFormatters();
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    return document.documentElement.classList.contains("dark") || true;
+    return document.documentElement.classList.contains("dark");
   });
 
   useEffect(() => {
