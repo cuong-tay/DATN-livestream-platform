@@ -72,6 +72,10 @@ interface VideoPlayerProps {
   hlsErrorExternal?: string | null;
   /** Optional callback to sync currentTime */
   onTimeUpdate?: (time: number) => void;
+  /** Optional callback fired when VOD playback ends */
+  onEnded?: () => void;
+  /** Optional callback fired when playback starts or resumes */
+  onPlay?: () => void;
 }
 
 export function VideoPlayer({
@@ -82,6 +86,8 @@ export function VideoPlayer({
   videoRef: externalVideoRef,
   hlsErrorExternal,
   onTimeUpdate,
+  onEnded,
+  onPlay,
 }: VideoPlayerProps) {
   // When an external ref is passed the hook owns HLS; otherwise maintain the
   // internal fallback so the component still works standalone (e.g. in dashboard
@@ -151,25 +157,33 @@ export function VideoPlayer({
       setDuration(Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0);
       setIsPlaying(!video.paused && !video.ended);
     };
+    const handlePlay = () => {
+      syncVideoState();
+      onPlay?.();
+    };
+    const handleEnded = () => {
+      syncVideoState();
+      onEnded?.();
+    };
 
     syncVideoState();
 
     video.addEventListener("timeupdate", syncVideoState);
     video.addEventListener("loadedmetadata", syncVideoState);
     video.addEventListener("durationchange", syncVideoState);
-    video.addEventListener("play", syncVideoState);
+    video.addEventListener("play", handlePlay);
     video.addEventListener("pause", syncVideoState);
-    video.addEventListener("ended", syncVideoState);
+    video.addEventListener("ended", handleEnded);
 
     return () => {
       video.removeEventListener("timeupdate", syncVideoState);
       video.removeEventListener("loadedmetadata", syncVideoState);
       video.removeEventListener("durationchange", syncVideoState);
-      video.removeEventListener("play", syncVideoState);
+      video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", syncVideoState);
-      video.removeEventListener("ended", syncVideoState);
+      video.removeEventListener("ended", handleEnded);
     };
-  }, [videoRef, hlsUrl]);
+  }, [videoRef, hlsUrl, onEnded, onPlay, onTimeUpdate]);
 
   // ── Generate fallback poster from VOD first frames ──────────────────
   useEffect(() => {

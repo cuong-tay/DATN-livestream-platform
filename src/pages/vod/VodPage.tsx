@@ -1,10 +1,16 @@
 import { Link, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { Clock3, Download, Flag, Loader2, PlayCircle, Share2, Sparkles } from "lucide-react";
+import { Clock3, Download, Flag, Loader2, PlayCircle, RotateCcw, Share2, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
-import { roomService, type StreamSession } from "@/shared/api/room.service";
+import {
+  roomService,
+  type RecommendationReason,
+  type RecommendedVodItem,
+  type StreamSession,
+} from "@/shared/api/room.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { VideoPlayer } from "@/features/play-stream";
+import { VodThumbnail } from "@/features/vod-thumbnail";
 import { ReplayChatBoard } from "@/widgets/chat-board";
 import { Avatar, AvatarFallback } from "@/shared/ui";
 import { SessionReactionPill } from "@/features/reactions";
@@ -53,6 +59,11 @@ function triggerBrowserDownload(url: string, fileName: string) {
   anchor.remove();
 }
 
+type RecommendationFilter = "ALL" | RecommendationReason;
+
+const RECOMMENDATION_LIMIT = 12;
+const END_SCREEN_ITEM_LIMIT = 3;
+
 export function VodPage() {
   const { t } = useI18n();
   const { formatDate, formatNumber } = useI18nFormatters();
@@ -72,14 +83,17 @@ export function VodPage() {
   const [session, setSession] = useState<StreamSession | null>(null);
   const [streamerAvatarUrl, setStreamerAvatarUrl] = useState<string | null>(null);
   const [streamerId, setStreamerId] = useState<number | null>(null);
-  const [relatedSessions, setRelatedSessions] = useState<StreamSession[]>([]);
+  const [recommendations, setRecommendations] = useState<RecommendedVodItem[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
-  const [isRelatedLoading, setIsRelatedLoading] = useState(false);
+  const [isRecommendationsLoading, setIsRecommendationsLoading] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [showEndScreen, setShowEndScreen] = useState(false);
+  const [playerResetKey, setPlayerResetKey] = useState(0);
+  const [recommendationFilter, setRecommendationFilter] = useState<RecommendationFilter>("ALL");
 
   useEffect(() => {
     const fetchSession = async () => {
@@ -118,25 +132,36 @@ export function VodPage() {
   }, [session?.roomId, streamerAvatarUrl, streamerId]);
 
   useEffect(() => {
-    if (!session?.roomId || !session?.id) return;
+    if (!session?.id || session.vodStatus !== "DONE" || !session.vodUrl) {
+      setRecommendations([]);
+      setIsRecommendationsLoading(false);
+      return;
+    }
 
-    setIsRelatedLoading(true);
+    let cancelled = false;
+    setIsRecommendationsLoading(true);
     roomService
-      .getRoomSessions(session.roomId, { page: 0, size: 20 })
+      .getSessionRecommendations(session.id, { limit: RECOMMENDATION_LIMIT })
       .then((res) => {
-        const items = res.data.content
-          .filter((item) => item.id !== session.id && item.vodStatus === "DONE" && Boolean(item.vodUrl))
-          .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
-        setRelatedSessions(items);
+        if (!cancelled) setRecommendations(res.data.items ?? []);
       })
       .catch(() => {
-        setRelatedSessions([]);
+        if (!cancelled) setRecommendations([]);
       })
-      .finally(() => setIsRelatedLoading(false));
-  }, [session?.roomId, session?.id]);
+      .finally(() => {
+        if (!cancelled) setIsRecommendationsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.id, session?.vodStatus, session?.vodUrl]);
 
   useEffect(() => {
     setIsAssistantOpen(false);
+    setShowEndScreen(false);
+    setRecommendationFilter("ALL");
+    setCurrentTime(0);
   }, [parsedSessionId]);
 
   if (isLoading) {
@@ -156,6 +181,113 @@ export function VodPage() {
   const sessionTitle = normalizeViText(session.title) || t("vod.defaultTitle");
   const isOwnVod = Boolean(streamerId && user?.userId === streamerId);
   const canUseVideoAssistant = session.vodStatus === "DONE" && Boolean(session.vodUrl);
+  const filteredRecommendations =
+    recommendationFilter === "ALL"
+      ? recommendations
+      : recommendations.filter((item) => item.reason === recommendationFilter);
+  const endScreenRecommendations = filteredRecommendations.slice(0, END_SCREEN_ITEM_LIMIT);
+  const sameChannelCount = recommendations.filter((item) => item.reason === "SAME_CHANNEL").length;
+  const similarTopicCount = recommendations.filter((item) => item.reason === "SIMILAR_TOPIC").length;
+
+  const getRecommendationReasonLabel = (reason: RecommendationReason): string =>
+    reason === "SAME_CHANNEL" ? t("vod.reasonSameChannel") : t("vod.reasonSimilarTopic");
+
+  const getRecommendationDuration = (item: RecommendedVodItem): string =>
+    item.durationMinutes > 0
+      ? t("vod.durationMinutes", { count: formatNumber(item.durationMinutes) })
+      : t("vod.durationUpdating");
+
+  const renderRecommendationFilters = () => {
+    const filters: Array<{ value: RecommendationFilter; label: string; count: number }> = [
+      { value: "ALL", label: t("vod.filterAll"), count: recommendations.length },
+      {
+        value: "SAME_CHANNEL",
+        label: t("vod.filterFromStreamer", { name: streamerName }),
+        count: sameChannelCount,
+      },
+      { value: "SIMILAR_TOPIC", label: t("vod.filterRecommended"), count: similarTopicCount },
+    ];
+
+    return (
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {filters.map((filter) => {
+          const isActive = recommendationFilter === filter.value;
+
+          return (
+            <button
+              key={filter.value}
+              type="button"
+              onClick={() => setRecommendationFilter(filter.value)}
+              className={`shrink-0 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                isActive
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              }`}
+            >
+              {filter.label}
+              <span className="ml-2 text-xs opacity-75">{formatNumber(filter.count)}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderRecommendationCard = (item: RecommendedVodItem, variant: "sidebar" | "overlay") => {
+    const itemTitle = normalizeViText(item.title) || t("vod.defaultTitle");
+    const itemStreamerName =
+      normalizeViText(item.streamerUsername?.trim()) || `Streamer #${item.roomId}`;
+    const itemDuration = getRecommendationDuration(item);
+    const reasonLabel = getRecommendationReasonLabel(item.reason);
+    const isOverlay = variant === "overlay";
+
+    return (
+      <Link
+        key={item.sessionId}
+        to={`/vod/${item.sessionId}`}
+        onClick={() => setShowEndScreen(false)}
+        className={
+          isOverlay
+            ? "group min-w-0 rounded-lg bg-white/5 p-1.5 transition hover:bg-white/12"
+            : "group grid grid-cols-[136px_1fr] gap-3 rounded-lg p-1.5 transition hover:bg-accent/70 sm:grid-cols-[168px_1fr]"
+        }
+      >
+        <div className={isOverlay ? "space-y-2" : "contents"}>
+          <div className="relative aspect-video overflow-hidden rounded-lg bg-black">
+            <VodThumbnail vodUrl={item.vodUrl} title={itemTitle} className="h-full w-full" />
+            <div className="absolute bottom-1.5 right-1.5 rounded bg-black/85 px-1.5 py-0.5 text-[11px] font-medium text-white">
+              {itemDuration}
+            </div>
+            <div className="absolute left-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+              {reasonLabel}
+            </div>
+          </div>
+
+          <div className={isOverlay ? "min-w-0 px-1 pb-1" : "min-w-0 py-0.5"}>
+            <p className={`${isOverlay ? "text-sm" : "text-sm"} line-clamp-2 font-semibold leading-5 text-foreground`}>
+              {itemTitle}
+            </p>
+            <p className="mt-1 truncate text-xs text-muted-foreground">{itemStreamerName}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span>{t("channel.views", { count: formatNumber(item.viewCount) })}</span>
+              <span className="hidden sm:inline">|</span>
+              <span>{item.categoryName}</span>
+              <span className="flex items-center gap-1">
+                <Clock3 className="h-3 w-3" />
+                {formatSessionTime(item.startedAt)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </Link>
+    );
+  };
+
+  const replayCurrentVideo = () => {
+    setShowEndScreen(false);
+    setCurrentTime(0);
+    setPlayerResetKey((value) => value + 1);
+  };
 
   const handleShare = async () => {
     const shareUrl = window.location.href;
@@ -220,78 +352,85 @@ export function VodPage() {
 
   const renderRelatedVideosPanel = () => (
     <section className="rounded-xl border border-border bg-card p-3 shadow-sm">
-      <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-        <button
-          type="button"
-          className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
-        >
-          {t("vod.filterAll")}
-        </button>
-        <button
-          type="button"
-          className="shrink-0 rounded-lg bg-muted px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
-        >
-          {t("vod.filterFromStreamer", { name: streamerName })}
-        </button>
-        <button
-          type="button"
-          className="shrink-0 rounded-lg bg-muted px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
-        >
-          {t("vod.filterRecommended")}
-        </button>
-      </div>
+      <div className="mb-3">{renderRecommendationFilters()}</div>
 
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-semibold text-foreground">{t("vod.relatedTitle")}</p>
-        <span className="text-xs text-muted-foreground">{t("vod.videoCount", { count: formatNumber(relatedSessions.length) })}</span>
+        <p className="text-sm font-semibold text-foreground">{t("vod.recommendationsTitle")}</p>
+        <span className="text-xs text-muted-foreground">{t("vod.videoCount", { count: formatNumber(filteredRecommendations.length) })}</span>
       </div>
 
       <div className="space-y-3">
-        {isRelatedLoading ? (
+        {isRecommendationsLoading ? (
           <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             {t("vod.relatedLoading")}
           </div>
-        ) : relatedSessions.length === 0 ? (
+        ) : filteredRecommendations.length === 0 ? (
           <div className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">
-            {t("vod.relatedEmpty")}
+            {t("vod.recommendationsEmpty")}
           </div>
         ) : (
-          relatedSessions.map((item) => {
-            const itemTitle = normalizeViText(item.title) || t("vod.defaultTitle");
-            const itemDuration = item.durationMinutes > 0 ? t("vod.durationMinutes", { count: formatNumber(item.durationMinutes) }) : t("vod.durationUpdating");
-
-            return (
-              <Link
-                key={item.id}
-                to={`/vod/${item.id}`}
-                className="group grid grid-cols-[136px_1fr] gap-3 rounded-lg p-1.5 transition hover:bg-accent/70 sm:grid-cols-[168px_1fr]"
-              >
-                <div className="relative aspect-video overflow-hidden rounded-lg bg-gradient-to-br from-neutral-700 via-neutral-900 to-black">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <PlayCircle className="h-7 w-7 text-white/85 transition group-hover:scale-110" />
-                  </div>
-                  <div className="absolute bottom-1.5 right-1.5 rounded bg-black/85 px-1.5 py-0.5 text-[11px] font-medium text-white">
-                    {itemDuration}
-                  </div>
-                </div>
-
-                <div className="min-w-0 py-0.5">
-                  <p className="line-clamp-2 text-sm font-semibold leading-5 text-foreground">
-                    {itemTitle}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">{streamerName}</p>
-                  <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                    <Clock3 className="h-3 w-3" />
-                    {formatSessionTime(item.startedAt)}
-                  </p>
-                </div>
-              </Link>
-            );
-          })
+          filteredRecommendations.map((item) => renderRecommendationCard(item, "sidebar"))
         )}
       </div>
     </section>
+  );
+
+  const renderEndScreenOverlay = () => (
+    <div className="absolute inset-0 z-40 flex flex-col bg-black/95 px-4 py-4 text-white sm:px-6 sm:py-5">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <PlayCircle className="h-5 w-5 text-primary" />
+            <h2 className="truncate text-lg font-bold sm:text-2xl">{t("vod.endScreenTitle")}</h2>
+          </div>
+          <p className="mt-1 text-xs text-white/65 sm:text-sm">{t("vod.endScreenSubtitle")}</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowEndScreen(false)}
+          className="rounded p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+          aria-label={t("vod.closeRecommendations")}
+          title={t("vod.closeRecommendations")}
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="mb-3">{renderRecommendationFilters()}</div>
+
+      <div className="min-h-0 flex-1">
+        {isRecommendationsLoading ? (
+          <div className="flex h-full items-center justify-center text-sm text-white/70">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {t("vod.relatedLoading")}
+          </div>
+        ) : endScreenRecommendations.length === 0 ? (
+          <div className="flex h-full items-center justify-center rounded-lg border border-white/10 bg-white/5 px-4 text-center text-sm text-white/70">
+            {t("vod.recommendationsEmpty")}
+          </div>
+        ) : (
+          <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto sm:grid-cols-3">
+            {endScreenRecommendations.map((item) => renderRecommendationCard(item, "overlay"))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3">
+        <span className="text-xs text-white/60">
+          {t("vod.videoCount", { count: formatNumber(filteredRecommendations.length) })}
+        </span>
+        <button
+          type="button"
+          onClick={replayCurrentVideo}
+          className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-black transition hover:bg-white/90"
+        >
+          <RotateCcw className="h-4 w-4" />
+          {t("vod.replayVideo")}
+        </button>
+      </div>
+    </div>
   );
 
   const renderDefaultSidebar = () => (
@@ -307,7 +446,15 @@ export function VodPage() {
         <div className="container relative mx-auto flex flex-1 flex-col gap-4 overflow-y-auto p-4 lg:p-6 lg:pb-10">
           <div className="md:col-span-2 space-y-4">
             <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-black/90 ring-1 ring-border/20">
-              <VideoPlayer hlsUrl={session.vodUrl} isLive={false} onTimeUpdate={setCurrentTime} />
+              <VideoPlayer
+                key={playerResetKey}
+                hlsUrl={session.vodUrl}
+                isLive={false}
+                onTimeUpdate={setCurrentTime}
+                onEnded={() => setShowEndScreen(true)}
+                onPlay={() => setShowEndScreen(false)}
+              />
+              {showEndScreen && renderEndScreenOverlay()}
             </div>
 
             <div className="space-y-4 rounded-xl border border-border/50 bg-card p-4 shadow-sm sm:p-5 md:p-6">

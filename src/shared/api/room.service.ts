@@ -164,6 +164,31 @@ export interface PublicVodItem {
   endedAt: string | null;
 }
 
+export type RecommendationReason = "SAME_CHANNEL" | "SIMILAR_TOPIC";
+
+export interface RecommendedVodItem {
+  sessionId: number;
+  roomId: number;
+  streamerId: number;
+  streamerUsername: string;
+  streamerAvatarUrl: string | null;
+  title: string;
+  categoryId: number;
+  categoryName: string;
+  vodUrl: string | null;
+  durationMinutes: number;
+  viewCount: number;
+  likeCount: number;
+  startedAt: string;
+  reason: RecommendationReason;
+  score: number;
+}
+
+export interface SessionRecommendationsResponse {
+  sessionId: number;
+  items: RecommendedVodItem[];
+}
+
 export interface ChatMessageResponse {
   messageId?: string;
   roomId: number;
@@ -290,6 +315,13 @@ export const roomService = {
   /** GET /sessions/{sessionId} — chi tiết một session (public) */
   getSessionById: (sessionId: number) =>
     httpClient.get<StreamSession>(`/sessions/${sessionId}`),
+
+  /** GET /sessions/{sessionId}/recommendations — public VOD recommendations */
+  getSessionRecommendations: (sessionId: number, params?: { limit?: number }) =>
+    httpClient.get<SessionRecommendationsResponse>(`/sessions/${sessionId}/recommendations`, {
+      params,
+      skipAuth: true,
+    }),
 
   /** GET /sessions/{sessionId}/chats — lấy toàn bộ chat của session (public) */
   getSessionChats: (sessionId: number) =>
