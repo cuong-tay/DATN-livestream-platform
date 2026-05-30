@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect } from "react";
 import { 
   Video, 
   BarChart3, 
@@ -31,6 +31,7 @@ import {
 import { RTMP_SERVER } from "@/shared/api/apiConfig";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { statisticsService, type StatsDashboard } from "@/shared/api/statistics.service";
+import { useAuth } from "@/app/providers/AuthContext";
 import { useStreamContext } from "@/app/providers/StreamContext";
 import { useCategories, type CategoryItem } from "@/entities/category";
 import { 
@@ -57,7 +58,7 @@ import {
   AlertDialogTrigger
 } from "@/shared/ui";
 import { toast } from "sonner";
-import { VideoPlayer } from "@/features/play-stream";
+import { useStableHlsSource, VideoPlayer } from "@/features/play-stream";
 import { ChatModerationPanel } from "@/features/chat-moderation/ui/ChatModerationPanel";
 import { ChatBoard } from "@/widgets/chat-board";
 import { Link } from "react-router-dom";
@@ -113,10 +114,52 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function readSessionTime(session: StreamSession): number {
+  const timestamp = new Date(session.startedAt).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function dedupeAndSortSessions(sessions: StreamSession[]): StreamSession[] {
+  const byId = new Map<number, StreamSession>();
+
+  for (const session of sessions) {
+    const existingSession = byId.get(session.id);
+    byId.set(session.id, {
+      ...existingSession,
+      ...session,
+      vodUrl: session.vodUrl ?? existingSession?.vodUrl ?? null,
+      vodStatus: session.vodStatus ?? existingSession?.vodStatus ?? null,
+      endedAt: session.endedAt ?? existingSession?.endedAt ?? null,
+    });
+  }
+
+  return [...byId.values()].sort((left, right) => readSessionTime(right) - readSessionTime(left));
+}
+
+function hasNearbySessionSplit(sessions: StreamSession[]): boolean {
+  const sortedSessions = dedupeAndSortSessions(sessions);
+
+  for (let index = 1; index < sortedSessions.length; index += 1) {
+    const previousSession = sortedSessions[index - 1];
+    const currentSession = sortedSessions[index];
+    const startedAtDiff = Math.abs(
+      readSessionTime(previousSession) - readSessionTime(currentSession),
+    );
+    const sameTitle = (previousSession.title || "") === (currentSession.title || "");
+
+    if (sameTitle && startedAtDiff > 0 && startedAtDiff <= 5 * 60_000) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function DashboardPage() {
   const { t } = useI18n();
   const { formatDate, formatNumber, formatCurrency } = useI18nFormatters();
-  const { categories } = useCategories();
+  const { user } = useAuth();
+  const { categories, isLoading: isCategoriesLoading } = useCategories();
   const { syncActiveRoom, clearActiveRoom } = useStreamContext();
   
   const [room, setRoom] = useState<RoomDetail | null>(null);
@@ -154,32 +197,43 @@ export function DashboardPage() {
   };
 
   // ── Load thông tin phòng ban đầu ──────────────────────────────────────
-  const fetchMyRoom = async () => {
+  const applyRoomSnapshot = (currentRoom: RoomDetail | null) => {
+    if (!currentRoom) {
+      setRoom(null);
+      clearActiveRoom();
+      return null;
+    }
+
+    const cachedStreamKey = currentRoom.streamKey
+      ? cacheStreamKey(currentRoom.roomId, currentRoom.streamKey)
+      : getCachedStreamKey(currentRoom.roomId);
+    const nextRoom: RoomDetail = {
+      ...currentRoom,
+      streamKey: cachedStreamKey,
+    };
+
+    setRoom(nextRoom);
+    syncActiveRoom(hasActiveLiveSession(nextRoom) || isEndingInProgress(nextRoom) ? nextRoom : null);
+    setEditTitle(currentRoom.title);
+    const cat = categories.find((item) => item.name === currentRoom.categoryName);
+    if (cat) setEditCategoryId(cat.id);
+
+    return nextRoom;
+  };
+
+  const buildEnsureRoomPayload = () => ({
+    title:
+      room?.title?.trim() ||
+      user?.username?.trim() ||
+      t("dashboard.createDialog.defaultTitle"),
+    categoryId: editCategoryId || categories[0]?.id || 1,
+  });
+
+  // Load or create the fixed Studio room through the backend ensure endpoint.
+  const ensureStudioRoom = async () => {
     try {
-      const res = await roomService.getMyRoom();
-      const currentRoom = res.data;
-
-      if (!currentRoom) {
-        setRoom(null);
-        clearActiveRoom();
-        return;
-      }
-
-      if (currentRoom.streamKey) {
-        cacheStreamKey(currentRoom.roomId, currentRoom.streamKey);
-      }
-
-      const cachedStreamKey = getCachedStreamKey(currentRoom.roomId);
-      const nextRoom: RoomDetail = {
-        ...currentRoom,
-        streamKey: cachedStreamKey,
-      };
-
-      setRoom(nextRoom);
-      syncActiveRoom(hasActiveLiveSession(nextRoom) || isEndingInProgress(nextRoom) ? nextRoom : null);
-      setEditTitle(currentRoom.title);
-      const cat = categories.find(c => c.name === currentRoom.categoryName);
-      if (cat) setEditCategoryId(cat.id);
+      const res = await roomService.ensureMyRoom(buildEnsureRoomPayload());
+      applyRoomSnapshot(res.data);
     } catch (error) {
       toast.error(t("dashboard.toast.loadRoomFailed", { message: extractApiErrorMessage(error) }));
     } finally {
@@ -187,17 +241,28 @@ export function DashboardPage() {
     }
   };
 
-  const fetchSessions = async () => {
+  const fetchMyRoom = async () => {
+    try {
+      const res = await roomService.getMyRoom();
+      applyRoomSnapshot(res.data);
+    } catch (error) {
+      toast.error(t("dashboard.toast.loadRoomFailed", { message: extractApiErrorMessage(error) }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchSessions = useCallback(async () => {
     setIsSessionsLoading(true);
     try {
       const res = await roomService.getMySessions({ page: 0, size: 10 });
-      setSessions(res.data.content);
+      setSessions(dedupeAndSortSessions(res.data.content));
     } catch (error) {
       console.warn("[rooms] getMySessions failed", extractApiErrorMessage(error));
     } finally {
       setIsSessionsLoading(false);
     }
-  };
+  }, []);
 
   const fetchStats = async () => {
     setIsStatsLoading(true);
@@ -214,7 +279,7 @@ export function DashboardPage() {
   const refreshStudioData = async () => {
     setIsRefreshingStudio(true);
     try {
-      await Promise.all([fetchMyRoom(), fetchSessions(), fetchStats()]);
+      await Promise.all([ensureStudioRoom(), fetchSessions(), fetchStats()]);
       toast.success(t("dashboard.toast.refreshSuccess"));
     } catch {
       // individual handlers already surface specific errors
@@ -251,27 +316,39 @@ export function DashboardPage() {
     }
   };
 
+  const pendingSessionIds = useMemo(
+    () =>
+      sessions
+        .filter((session) => session.vodStatus === "PENDING" || session.vodStatus === "UPLOADING")
+        .map((session) => session.id)
+        .sort((left, right) => left - right)
+        .join(","),
+    [sessions],
+  );
+  const hasPossibleSessionSplit = useMemo(() => hasNearbySessionSplit(sessions), [sessions]);
+
   useEffect(() => {
-    if (categories.length > 0) {
-       fetchMyRoom();
+    if (!isCategoriesLoading) {
+       ensureStudioRoom();
        fetchSessions();
        fetchStats();
     }
-  }, [categories]);
+  }, [isCategoriesLoading]);
 
   useEffect(() => {
-    const hasPendingVod = sessions.some(
-      (session) => session.vodStatus === "PENDING" || session.vodStatus === "UPLOADING",
-    );
-
-    if (!hasPendingVod) {
+    if (!pendingSessionIds) {
       return;
     }
+
+    const knownPendingIds = pendingSessionIds
+      .split(",")
+      .map((sessionId) => Number(sessionId))
+      .filter(Number.isFinite);
 
     const pollPendingVodSessions = async () => {
       try {
         const pendingRes = await roomService.getMyPendingVodSessions({ page: 0, size: 20 });
-        const pendingSessions = pendingRes.data.content;
+        const pendingSessions = dedupeAndSortSessions(pendingRes.data.content);
         const pendingMap = new Map(pendingSessions.map((session) => [session.id, session]));
         const inProgressPendingIds = new Set(
           pendingSessions
@@ -279,10 +356,8 @@ export function DashboardPage() {
             .map((session) => session.id),
         );
 
-        const hasSessionFinishedVod = sessions.some(
-          (session) =>
-            (session.vodStatus === "PENDING" || session.vodStatus === "UPLOADING") &&
-            !inProgressPendingIds.has(session.id),
+        const hasSessionFinishedVod = knownPendingIds.some(
+          (sessionId) => !inProgressPendingIds.has(sessionId),
         );
 
         if (hasSessionFinishedVod) {
@@ -290,7 +365,9 @@ export function DashboardPage() {
           return;
         }
 
-        setSessions((prev) => prev.map((session) => pendingMap.get(session.id) ?? session));
+        setSessions((prev) =>
+          dedupeAndSortSessions(prev.map((session) => pendingMap.get(session.id) ?? session)),
+        );
       } catch (error) {
         console.warn("[rooms] getMyPendingVodSessions failed", extractApiErrorMessage(error));
         await fetchSessions();
@@ -304,7 +381,7 @@ export function DashboardPage() {
     }, 5000);
 
     return () => clearInterval(intervalId);
-  }, [sessions]);
+  }, [fetchSessions, pendingSessionIds]);
 
   // ── Polling: Liên tục cập nhật trạng thái Live ───────────────────────
   // Khi OBS bắt đầu stream, BE sẽ chuyển status sang LIVE. Frontend cần biết việc đó.
@@ -476,6 +553,13 @@ export function DashboardPage() {
     setShowStreamKey((prev) => !prev);
   };
 
+  const roomIsLive = hasActiveLiveSession(room);
+  const stableHlsSource = useStableHlsSource(
+    room?.activeSessionId ?? null,
+    room?.hlsUrl ?? null,
+    roomIsLive,
+  );
+
   if (isLoading) {
     return (
       <div className="h-[calc(100vh-var(--app-header-offset))] flex items-center justify-center">
@@ -491,9 +575,9 @@ export function DashboardPage() {
         <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-6">
           <Video className="text-primary w-10 h-10" />
         </div>
-        <h3 className="text-2xl font-bold mb-2">Chua tai duoc room co dinh</h3>
+        <h3 className="text-2xl font-bold mb-2">Khong the chuan bi Studio</h3>
         <p className="text-muted-foreground mb-8 max-w-sm text-center">
-          Backend moi yeu cau moi streamer co san 1 room co dinh. Frontend se khong tao room moi nua.
+          Khong the tao hoac tai phong live. Bam thu lai de goi backend /rooms/me/ensure.
         </p>
         <Button
           onClick={() => void refreshStudioData()}
@@ -509,7 +593,7 @@ export function DashboardPage() {
     );
   }
 
-  const isLive = hasActiveLiveSession(room);
+  const isLive = roomIsLive;
   const isEnding = isEndingInProgress(room);
   const canStartStream = isStartingAllowed(room);
   const canEndStream = isLive && !isEnding;
@@ -518,7 +602,9 @@ export function DashboardPage() {
   const latestEndedSession = sessions.find((session) => Boolean(session.endedAt)) ?? null;
   const shouldShowLatestEndedSession =
     Boolean(latestEndedSession) && (room.status === "ENDED" || isEnding);
-  const hasPlaybackUrl = Boolean(room.hlsUrl);
+  const playbackHlsUrl = stableHlsSource?.hlsUrl ?? null;
+  const hasPlaybackUrl = Boolean(playbackHlsUrl);
+  const isWaitingForFreshHls = Boolean(stableHlsSource?.isStale);
   const hasStreamKey = Boolean(room.streamKey);
   const chart30Days = Array.isArray(stats?.chart30Days) ? stats.chart30Days : [];
   const statusLabel =
@@ -743,7 +829,14 @@ export function DashboardPage() {
           {/* Video Preview Box */}
           <div className="w-full aspect-video bg-black rounded-lg border border-[#3d3d3d] shadow-2xl relative overflow-hidden group">
             {isLive && hasPlaybackUrl ? (
-               <VideoPlayer hlsUrl={room.hlsUrl} isLive={true} />
+               <>
+                 <VideoPlayer hlsUrl={playbackHlsUrl} isLive={true} />
+                 {isWaitingForFreshHls && (
+                   <div className="pointer-events-none absolute inset-x-0 top-0 z-30 bg-amber-500/15 px-4 py-2 text-center text-xs font-semibold text-amber-100 backdrop-blur-sm">
+                     {t("dashboard.preview.reconnectingSource")}
+                   </div>
+                 )}
+               </>
             ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-[#18181b] to-black">
                     <div className="w-24 h-24 mb-4 rounded-full bg-[#2d2d2d] flex items-center justify-center shadow-inner">
@@ -1057,6 +1150,11 @@ export function DashboardPage() {
                         {t("dashboard.history.title")}
                      </h2>
                   </div>
+                  {hasPossibleSessionSplit && (
+                    <div className="border-b border-amber-900/70 bg-amber-950/20 px-4 py-3 text-xs text-amber-200">
+                      {t("dashboard.history.sessionSplitWarning")}
+                    </div>
+                  )}
                   
                   {isSessionsLoading ? (
                      <div className="flex flex-col items-center justify-center p-12">

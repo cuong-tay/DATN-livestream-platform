@@ -38,6 +38,11 @@ export interface CreateRoomRequest {
   categoryId: number;
 }
 
+export interface EnsureMyRoomRequest {
+  title: string;
+  categoryId: number;
+}
+
 export interface CreateRoomResponse {
   roomId: number;
   sessionId?: number | null;
@@ -221,21 +226,16 @@ export const roomService = {
   createRoom: (data: CreateRoomRequest) =>
     httpClient.post<CreateRoomResponse>("/rooms", data),
 
+  /** POST /rooms/me/ensure — tao hoac lay room co dinh cua streamer hien tai (JWT) */
+  ensureMyRoom: (data: EnsureMyRoomRequest) =>
+    httpClient.post<RoomDetail>("/rooms/me/ensure", data),
+
   /**
    * POST /rooms/me/sessions — bắt đầu một phiên live mới trên room hiện có.
-   * Fallback về POST /rooms khi backend chưa tách room/session.
+   * Backend moi dam bao room bang POST /rooms/me/ensure truoc khi tao session.
    */
-  startMyStreamSession: async (data: StartStreamSessionRequest) => {
-    try {
-      return await httpClient.post<CreateRoomResponse>("/rooms/me/sessions", data);
-    } catch (error) {
-      if (!hasHttpStatus(error, 404) && !hasHttpStatus(error, 405)) {
-        throw error;
-      }
-
-      return roomService.createRoom(data);
-    }
-  },
+  startMyStreamSession: (data: StartStreamSessionRequest) =>
+    httpClient.post<CreateRoomResponse>("/rooms/me/sessions", data),
 
   /** PUT /rooms/me — cập nhật phòng của tôi (JWT) */
   updateMyRoom: (data: { title?: string; categoryId?: number }) =>

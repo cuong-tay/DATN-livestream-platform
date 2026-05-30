@@ -1,7 +1,7 @@
 ﻿import { useParams, Link } from "react-router-dom";
 import { Heart, Share2, Flag, Users, ChevronDown, Loader2, AlertCircle, DollarSign } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { VideoPlayer, useWatchRoom } from "@/features/play-stream";
+import { useStableHlsSource, VideoPlayer, useWatchRoom } from "@/features/play-stream";
 import { ChatBoard } from "@/widgets/chat-board";
 import { DonateModal } from "@/features/donate";
 import { ReportModal } from "@/features/report";
@@ -10,7 +10,6 @@ import {
   hasActiveLiveSession,
   isChatOpen,
   isEndingInProgress,
-  isViewerPlayable,
   roomService,
   type RoomDetail,
   type StreamSession,
@@ -48,15 +47,22 @@ export function StreamPage() {
   const isLive = hasActiveLiveSession(room);
   const isEnding = isEndingInProgress(room);
   const isEnded = room?.status === "ENDED";
-  const hasPlaybackUrl = Boolean(room?.hlsUrl);
-  const canPlayViewerStream = isViewerPlayable(room);
+  const stableHlsSource = useStableHlsSource(
+    room?.activeSessionId ?? null,
+    room?.hlsUrl ?? null,
+    isLive,
+  );
+  const playbackHlsUrl = stableHlsSource?.hlsUrl ?? null;
+  const hasPlaybackUrl = Boolean(playbackHlsUrl);
+  const canPlayViewerStream = Boolean(playbackHlsUrl && isLive);
+  const isWaitingForFreshHls = Boolean(stableHlsSource?.isStale);
 
   // â”€â”€ Video ref + all-in-one watch hook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const videoRef = useRef<HTMLVideoElement>(null);
   const { viewCount, error: watchError } = useWatchRoom(
-    isLive ? roomId : null,
-    isLive ? room?.activeSessionId ?? null : null,
-    isLive ? room?.hlsUrl : null,
+    canPlayViewerStream ? roomId : null,
+    canPlayViewerStream ? stableHlsSource?.sessionId ?? null : null,
+    playbackHlsUrl,
     videoRef,
   );
 
@@ -246,13 +252,20 @@ export function StreamPage() {
                   </div>
                 </div>
               ) : (
-                <VideoPlayer
-                  hlsUrl={room.hlsUrl}
-                  isLive={canPlayViewerStream}
-                  videoRef={videoRef}
-                  viewCount={viewCount}
-                  hlsErrorExternal={watchError}
-                />
+                <div className="relative">
+                  <VideoPlayer
+                    hlsUrl={playbackHlsUrl}
+                    isLive={canPlayViewerStream}
+                    videoRef={videoRef}
+                    viewCount={viewCount}
+                    hlsErrorExternal={watchError}
+                  />
+                  {isWaitingForFreshHls && (
+                    <div className="pointer-events-none absolute inset-x-0 top-0 z-30 bg-amber-500/15 px-4 py-2 text-center text-xs font-semibold text-amber-100 backdrop-blur-sm">
+                      {t("stream.reconnectingSource")}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
