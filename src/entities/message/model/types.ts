@@ -6,6 +6,7 @@ export interface ChatMessage {
   message: string;
   timestamp: Date;
   color: string;
+  sessionId?: number | null;
   messageType?: string;
   moderationStatus?: "checking";
 }

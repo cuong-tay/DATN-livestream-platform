@@ -8,7 +8,12 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 
-import { hasActiveLiveSession, roomService, type RoomDetail } from "@/shared/api/room.service";
+import {
+  hasActiveLiveSession,
+  isEndingInProgress,
+  roomService,
+  type RoomDetail,
+} from "@/shared/api/room.service";
 import { useAuth } from "./AuthContext";
 
 const ACTIVE_ROOM_STORAGE_KEY = "activeLiveRoom";
@@ -46,7 +51,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const [activeRoom, setActiveRoom] = useState<RoomDetail | null>(() => readStoredRoom());
 
   const syncActiveRoom = useCallback((room: RoomDetail | null) => {
-    const nextRoom = room && hasActiveLiveSession(room) ? room : null;
+    const nextRoom = room && (hasActiveLiveSession(room) || isEndingInProgress(room)) ? room : null;
     setActiveRoom(nextRoom);
     writeStoredRoom(nextRoom);
   }, []);
@@ -66,7 +71,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
       const res = await roomService.getMyRoom();
       const currentRoom = res.data;
 
-      if (!currentRoom || !hasActiveLiveSession(currentRoom)) {
+      if (!currentRoom || (!hasActiveLiveSession(currentRoom) && !isEndingInProgress(currentRoom))) {
         clearActiveRoom();
         return;
       }
@@ -95,7 +100,11 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   }, [clearActiveRoom, isAuthLoading, isAuthenticated, refreshActiveRoom]);
 
   useEffect(() => {
-    if (!isAuthenticated || !activeRoom || !hasActiveLiveSession(activeRoom)) {
+    if (
+      !isAuthenticated ||
+      !activeRoom ||
+      (!hasActiveLiveSession(activeRoom) && !isEndingInProgress(activeRoom))
+    ) {
       return;
     }
 

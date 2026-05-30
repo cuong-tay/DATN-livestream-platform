@@ -6,7 +6,15 @@ import { ChatBoard } from "@/widgets/chat-board";
 import { DonateModal } from "@/features/donate";
 import { ReportModal } from "@/features/report";
 import { SessionReactionPill } from "@/features/reactions";
-import { hasActiveLiveSession, roomService, type RoomDetail } from "@/shared/api/room.service";
+import {
+  hasActiveLiveSession,
+  isChatOpen,
+  isEndingInProgress,
+  isViewerPlayable,
+  roomService,
+  type RoomDetail,
+  type StreamSession,
+} from "@/shared/api/room.service";
 import { followService } from "@/shared/api/follow.service";
 import { useAuth } from "@/app/providers/AuthContext";
 import { hasHttpStatus } from "@/shared/api/httpClient";
@@ -27,6 +35,7 @@ export function StreamPage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [followerCount, setFollowerCount] = useState<number>(0);
+  const [latestEndedSession, setLatestEndedSession] = useState<StreamSession | null>(null);
 
   const [isDonateOpen, setIsDonateOpen] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -37,8 +46,10 @@ export function StreamPage() {
   );
 
   const isLive = hasActiveLiveSession(room);
+  const isEnding = isEndingInProgress(room);
   const isEnded = room?.status === "ENDED";
   const hasPlaybackUrl = Boolean(room?.hlsUrl);
+  const canPlayViewerStream = isViewerPlayable(room);
 
   // â”€â”€ Video ref + all-in-one watch hook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -72,7 +83,7 @@ export function StreamPage() {
 
   // â”€â”€ Poll room status má»—i 10s â€” báº¯t RECONNECTING / ENDED â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
-    if (!roomId || !isLive) return;
+    if (!roomId || room?.status === "BANNED") return;
     const intervalId = setInterval(() => {
       roomService
         .getRoomById(roomId)
@@ -80,7 +91,22 @@ export function StreamPage() {
         .catch(() => {});
     }, 10_000);
     return () => clearInterval(intervalId);
-  }, [roomId, isLive]);
+  }, [roomId, room?.status]);
+
+  useEffect(() => {
+    if (!roomId || !isEnded) {
+      setLatestEndedSession(null);
+      return;
+    }
+
+    roomService
+      .getRoomSessions(roomId, { page: 0, size: 1 })
+      .then((res) => {
+        const latestSession = res.data.content.find((session) => Boolean(session.endedAt)) ?? null;
+        setLatestEndedSession(latestSession);
+      })
+      .catch(() => setLatestEndedSession(null));
+  }, [isEnded, roomId]);
 
   // â”€â”€ Fetch follow status + follower count â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
@@ -160,7 +186,17 @@ export function StreamPage() {
           <div className="border-border lg:border-r">
             {/* Player */}
             <div className="bg-black">
-              {isEnded ? (
+              {isEnding ? (
+                <div className="relative flex aspect-video flex-col items-center justify-center gap-5 bg-gradient-to-br from-slate-950 to-slate-900 px-6 text-center text-white">
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full border border-blue-500/30 bg-blue-500/10">
+                    <Loader2 className="h-9 w-9 animate-spin text-blue-300" />
+                  </div>
+                  <div>
+                    <p className="mb-2 text-2xl font-bold">{t("stream.endingTitle")}</p>
+                    <p className="text-sm text-gray-300">{t("stream.endingDescription")}</p>
+                  </div>
+                </div>
+              ) : isEnded ? (
                 <div className="relative flex aspect-video flex-col items-center justify-center gap-6 bg-gradient-to-br from-slate-950 to-slate-900 px-6 text-center text-white">
                   <div className="w-20 h-20 rounded-full bg-[#1a1a1a] border border-[#3d3d3d] flex items-center justify-center">
                     <AlertCircle className="h-9 w-9 text-gray-500" />
@@ -183,7 +219,20 @@ export function StreamPage() {
                       >
                         {t("stream.viewChannel")}
                       </Link>
+                      {latestEndedSession?.vodStatus === "DONE" && latestEndedSession.vodUrl && (
+                        <Link
+                          to={`/vod/${latestEndedSession.id}`}
+                          className="rounded-md bg-emerald-500 px-5 py-2 font-semibold text-black transition hover:bg-emerald-400"
+                        >
+                          {t("stream.watchReplay")}
+                        </Link>
+                      )}
                     </div>
+                    {latestEndedSession && latestEndedSession.vodStatus !== "DONE" && (
+                      <p className="mt-4 text-xs text-gray-400">
+                        {t("stream.replayProcessing")}
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : isLive && !hasPlaybackUrl ? (
@@ -199,7 +248,7 @@ export function StreamPage() {
               ) : (
                 <VideoPlayer
                   hlsUrl={room.hlsUrl}
-                  isLive={isLive}
+                  isLive={canPlayViewerStream}
                   videoRef={videoRef}
                   viewCount={viewCount}
                   hlsErrorExternal={watchError}
@@ -303,7 +352,7 @@ export function StreamPage() {
           {/* â”€â”€ Chat (desktop) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div className="h-[calc(100vh-var(--app-header-offset))] sticky top-[var(--app-header-offset)] hidden lg:block">
             {isDesktopChatLayout && (
-              <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
+              <ChatBoard roomId={roomId!} sessionId={isChatOpen(room) ? room.activeSessionId ?? null : null} />
             )}
           </div>
         </div>
@@ -311,7 +360,7 @@ export function StreamPage() {
         {/* Chat (mobile) */}
         <div className="h-[500px] border-t border-border lg:hidden">
           {!isDesktopChatLayout && (
-            <ChatBoard roomId={roomId!} sessionId={room.activeSessionId ?? null} />
+            <ChatBoard roomId={roomId!} sessionId={isChatOpen(room) ? room.activeSessionId ?? null : null} />
           )}
         </div>
       </div>

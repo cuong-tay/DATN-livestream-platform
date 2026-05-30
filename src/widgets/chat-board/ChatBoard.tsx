@@ -59,6 +59,7 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
     chatAlert,
     clearChatAlert,
     isConnected,
+    isChatClosed,
     isChatInputDisabled,
     chatTimeoutRemainingSeconds,
   } = useStompChat(roomId, sessionId);
@@ -161,8 +162,10 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
       >
         {messages.length === 0 && (
           <div className="py-8 text-center text-sm text-gray-400">
-            <p>{t("chat.empty")}</p>
-            <p className="mt-1 text-xs text-gray-500">{t("chat.emptyHint")}</p>
+            <p>{isChatClosed ? t("chat.closedTitle") : t("chat.empty")}</p>
+            <p className="mt-1 text-xs text-gray-500">
+              {isChatClosed ? t("chat.closedDescription") : t("chat.emptyHint")}
+            </p>
           </div>
         )}
         {messages.map((msg, index) => {
@@ -282,7 +285,9 @@ export function ChatBoard({ roomId, sessionId, streamerId }: ChatBoardProps) {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               placeholder={
-                !user
+                isChatClosed
+                  ? t("chat.closedPlaceholder")
+                  : !user
                   ? t("errors.unauthorized")
                   : isChatInputDisabled
                   ? t("chat.timeoutPlaceholder", { minutes: chatTimeoutMinutes })

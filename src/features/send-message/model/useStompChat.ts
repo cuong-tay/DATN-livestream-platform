@@ -26,6 +26,7 @@ interface UseStompChatReturn {
   chatAlert: string | null;
   clearChatAlert: () => void;
   isConnected: boolean;
+  isChatClosed: boolean;
   isChatInputDisabled: boolean;
   chatTimeoutRemainingSeconds: number;
 }
@@ -85,6 +86,7 @@ function previewText(value?: string, maxLength = 120): string {
 function summarizeChatPayload(payload: ChatWirePayload): Record<string, unknown> {
   return {
     roomId: payload.roomId,
+    sessionId: payload.sessionId,
     messageId: payload.messageId,
     messageType: payload.messageType,
     senderName: payload.senderName,
@@ -122,6 +124,25 @@ function removeMessageById(currentMessages: ChatMessage[], messageId: string): C
   return currentMessages.filter((message) => message.id !== messageId);
 }
 
+function normalizeSessionId(sessionId: unknown): number | null {
+  if (sessionId == null) return null;
+
+  const numericSessionId =
+    typeof sessionId === "number" ? sessionId : Number(String(sessionId));
+
+  return Number.isFinite(numericSessionId) ? numericSessionId : null;
+}
+
+function isPayloadForActiveSession(
+  payload: Pick<ChatWirePayload, "sessionId">,
+  activeSessionId: number | null,
+): boolean {
+  if (activeSessionId == null) return false;
+
+  const payloadSessionId = normalizeSessionId(payload.sessionId);
+  return payloadSessionId == null || payloadSessionId === activeSessionId;
+}
+
 /** Map a REST history message to the UI ChatMessage shape */
 function mapHistoryMessage(msg: ChatMessageResponse, idx: number): ChatMessage {
   const rawTimestamp = msg.timestamp ?? msg.createdAt;
@@ -133,6 +154,7 @@ function mapHistoryMessage(msg: ChatMessageResponse, idx: number): ChatMessage {
     message: readMessageText(msg),
     timestamp: parsedTimestamp,
     color: messageType === "BOT" ? "#22d3ee" : randomColor(),
+    sessionId: normalizeSessionId(msg.sessionId),
     messageType,
   };
 }
@@ -150,6 +172,7 @@ function mapIncomingMessage(
     message: readMessageText(payload),
     timestamp: rawTimestamp ? new Date(rawTimestamp) : new Date(),
     color: messageType === "BOT" ? "#22d3ee" : randomColor(),
+    sessionId: normalizeSessionId(payload.sessionId),
     messageType,
   };
 }
@@ -170,12 +193,13 @@ function isBotUnavailableAlert(payload: ChatAlertPayload): boolean {
 /**
  * Real-time chat via STOMP over SockJS.
  * Source of truth:
- * - History: GET `/rooms/{roomId}/recent-chat`.
+ * - History: GET `/sessions/{sessionId}/chats` for the active live session.
  * - Realtime: `/topic/room/{roomId}` with backend-created `messageId`.
- * - Send: `/app/chat.sendMessage` with `{ roomId, senderName, content }`.
+ * - Send: `/app/chat.sendMessage` with `{ roomId, sessionId, senderName, content }`.
  */
 export function useStompChat(roomId: number | null, sessionId?: number | null): UseStompChatReturn {
   const { user } = useAuth();
+  const activeSessionId = sessionId ?? null;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [botLoading, setBotLoading] = useState(false);
@@ -232,11 +256,13 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   const chatTimeoutRemainingSeconds = chatTimeoutUntil
     ? Math.max(0, Math.ceil((chatTimeoutUntil - now) / 1000))
     : 0;
-  const isChatInputDisabled = chatTimeoutRemainingSeconds > 0;
+  const isChatClosed = activeSessionId == null;
+  const isChatInputDisabled = isChatClosed || chatTimeoutRemainingSeconds > 0;
 
   // ── Fetch REST history on mount ────────────────────────────────────────
   useEffect(() => {
     clearAllModerationTimers();
+    pendingChatPublishesRef.current = [];
     setMessages([]);
     setBotLoading(false);
     setBotAlert(null);
@@ -244,28 +270,30 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
     setChatTimeoutUntil(null);
     setNow(Date.now());
 
-    if (!roomId) {
+    if (!roomId || !activeSessionId) {
       return;
     }
 
     roomService
-      .getRecentChat(roomId)
+      .getSessionChats(activeSessionId)
       .then((res) => {
         const history = res.data.map(mapHistoryMessage);
-        chatDebug("useStompChat", "loaded recent chat", {
+        chatDebug("useStompChat", "loaded session chat", {
           roomId,
+          sessionId: activeSessionId,
           count: history.length,
         });
         setMessages(history.slice(-CHAT_MAX_MESSAGES));
       })
       .catch((error) => {
-        chatDebugWarn("useStompChat", "failed to load recent chat", {
+        chatDebugWarn("useStompChat", "failed to load session chat", {
           roomId,
+          sessionId: activeSessionId,
           error: error instanceof Error ? error.message : String(error),
         });
         // History unavailable — start with empty chat
       });
-  }, [clearAllModerationTimers, roomId]);
+  }, [activeSessionId, clearAllModerationTimers, roomId]);
 
   useEffect(() => clearAllModerationTimers, [clearAllModerationTimers]);
 
@@ -318,13 +346,23 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   }, [isConnected]);
 
   useEffect(() => {
-    if (!roomId) return;
+    if (!roomId || !activeSessionId) return;
 
     return subscribeToTopic(`/topic/room/${roomId}`, (frame) => {
       try {
         const payload = JSON.parse(frame.body) as ChatWirePayload;
         const eventType = normalizeEventType(payload.messageType);
         chatDebug("useStompChat", "room event received", summarizeChatPayload(payload));
+
+        if (payload.roomId != null && Number(payload.roomId) !== roomId) {
+          chatDebug("useStompChat", "ignored room event for another room", summarizeChatPayload(payload));
+          return;
+        }
+
+        if (!isPayloadForActiveSession(payload, activeSessionId)) {
+          chatDebug("useStompChat", "ignored room event for another session", summarizeChatPayload(payload));
+          return;
+        }
 
         if (eventType === "CHAT_REMOVED") {
           const messageId = readMessageId(payload);
@@ -333,6 +371,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
             setMessages((prev) => removeMessageById(prev, messageId));
             chatDebug("useStompChat", "removed chat message from room event", {
               roomId,
+              sessionId: activeSessionId,
               messageId,
               blockedWords: payload.blockedWords,
             });
@@ -374,15 +413,19 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
         // Malformed message — skip
       }
     });
-  }, [clearModerationTimer, roomId, scheduleModerationCheckClear]);
+  }, [activeSessionId, clearModerationTimer, roomId, scheduleModerationCheckClear]);
 
   useEffect(() => {
-    if (!roomId) return;
+    if (!roomId || !activeSessionId) return;
 
     const unsubscribeBotReplies = subscribeToTopic("/user/queue/bot-replies", (frame) => {
       try {
         const payload = JSON.parse(frame.body) as ChatWirePayload;
         chatDebug("useStompChat", "bot reply received", summarizeChatPayload(payload));
+        if (!isPayloadForActiveSession(payload, activeSessionId)) {
+          chatDebug("useStompChat", "ignored bot reply for another session", summarizeChatPayload(payload));
+          return;
+        }
         const incoming = mapIncomingMessage(payload, nextId(), "BOT");
         setBotLoading(false);
         if (!incoming.message.trim()) return;
@@ -433,7 +476,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       unsubscribeBotReplies();
       unsubscribeAlerts();
     };
-  }, [clearModerationTimer, roomId]);
+  }, [activeSessionId, clearModerationTimer, roomId]);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -447,7 +490,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
   const sendMessage = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      if (!newMessage.trim() || !roomId || isChatInputDisabled) return;
+      if (!newMessage.trim() || !roomId || !activeSessionId || isChatInputDisabled) return;
 
       const senderName = user?.username || "Anonymous";
       const content = newMessage.trim();
@@ -455,13 +498,14 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
 
       const body = JSON.stringify({
         roomId,
+        sessionId: activeSessionId,
         senderName,
         content,
       });
 
       chatDebug("useStompChat", "send chat message", {
         roomId,
-        sessionId: sessionId ?? null,
+        sessionId: activeSessionId,
         senderName,
         contentPreview: previewText(content),
       });
@@ -487,17 +531,17 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       });
       setNewMessage("");
     },
-    [isChatInputDisabled, newMessage, roomId, sessionId, user],
+    [activeSessionId, isChatInputDisabled, newMessage, roomId, user],
   );
 
   const askBot = useCallback(
     (question: string) => {
       const trimmedQuestion = question.trim();
-      if (!trimmedQuestion || !roomId || botLoading || isChatInputDisabled) return false;
+      if (!trimmedQuestion || !roomId || !activeSessionId || botLoading || isChatInputDisabled) return false;
 
       const body = JSON.stringify({
         roomId,
-        sessionId: sessionId ?? undefined,
+        sessionId: activeSessionId,
         userId: user?.userId,
         senderName: user?.username || "Anonymous",
         question: trimmedQuestion,
@@ -507,7 +551,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
 
       chatDebug("useStompChat", "send bot question", {
         roomId,
-        sessionId: sessionId ?? null,
+        sessionId: activeSessionId,
         senderName: user?.username || "Anonymous",
         questionPreview: previewText(trimmedQuestion),
       });
@@ -535,7 +579,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
       setNewMessage("");
       return true;
     },
-    [botLoading, isChatInputDisabled, roomId, sessionId, user],
+    [activeSessionId, botLoading, isChatInputDisabled, roomId, user],
   );
 
   const clearBotAlert = useCallback(() => {
@@ -559,6 +603,7 @@ export function useStompChat(roomId: number | null, sessionId?: number | null): 
     chatAlert,
     clearChatAlert,
     isConnected,
+    isChatClosed,
     isChatInputDisabled,
     chatTimeoutRemainingSeconds,
   };

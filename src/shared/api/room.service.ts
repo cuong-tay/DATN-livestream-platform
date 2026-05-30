@@ -11,7 +11,7 @@ export interface PaginatedResponse<T> {
   number: number;
 }
 
-export type RoomStatus = "PENDING" | "LIVE" | "RECONNECTING" | "ENDED" | "BANNED";
+export type RoomStatus = "PENDING" | "LIVE" | "RECONNECTING" | "ENDING" | "ENDED" | "BANNED";
 
 export interface RoomLiveItem {
   roomId: number;
@@ -56,9 +56,10 @@ export interface StartStreamSessionRequest {
 const ROOM_STATUS_PRIORITY: Record<RoomStatus, number> = {
   LIVE: 0,
   RECONNECTING: 1,
-  PENDING: 2,
+  ENDING: 2,
   ENDED: 3,
-  BANNED: 4,
+  PENDING: 4,
+  BANNED: 5,
 };
 
 function buildSyntheticResponse<T>(data: T): AxiosResponse<T> {
@@ -74,7 +75,7 @@ function buildSyntheticResponse<T>(data: T): AxiosResponse<T> {
 }
 
 export function isActiveRoomStatus(status?: RoomStatus): boolean {
-  return status === "PENDING" || status === "LIVE" || status === "RECONNECTING";
+  return status === "LIVE" || status === "RECONNECTING";
 }
 
 export function hasActiveLiveSession(
@@ -83,6 +84,31 @@ export function hasActiveLiveSession(
   if (!room) return false;
   if (room.activeSessionId != null) return true;
   return room.status === "LIVE" || room.status === "RECONNECTING";
+}
+
+export function isEndingInProgress(
+  room?: Pick<RoomLiveItem, "status"> | null,
+): boolean {
+  return room?.status === "ENDING";
+}
+
+export function isStartingAllowed(
+  room?: Pick<RoomLiveItem, "activeSessionId" | "status"> | null,
+): boolean {
+  if (!room || room.activeSessionId != null) return false;
+  return room.status === "PENDING" || room.status === "ENDED";
+}
+
+export function isChatOpen(
+  room?: Pick<RoomLiveItem, "activeSessionId" | "status"> | null,
+): boolean {
+  return Boolean(room?.activeSessionId && hasActiveLiveSession(room));
+}
+
+export function isViewerPlayable(
+  room?: Pick<RoomLiveItem, "activeSessionId" | "hlsUrl" | "status"> | null,
+): boolean {
+  return Boolean(room?.hlsUrl && hasActiveLiveSession(room));
 }
 
 export function pickPreferredRoom(rooms: RoomLiveItem[]): RoomLiveItem | undefined {
@@ -136,6 +162,7 @@ export interface PublicVodItem {
 export interface ChatMessageResponse {
   messageId?: string;
   roomId: number;
+  sessionId?: number | null;
   senderName: string;
   content: string;
   messageType?: string;

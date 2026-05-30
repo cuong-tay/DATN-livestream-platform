@@ -19,7 +19,15 @@ import {
   Trash2,
   UploadCloud
 } from "lucide-react";
-import { hasActiveLiveSession, roomService, type RoomDetail, type StreamSession } from "@/shared/api/room.service";
+import {
+  hasActiveLiveSession,
+  isChatOpen,
+  isEndingInProgress,
+  isStartingAllowed,
+  roomService,
+  type RoomDetail,
+  type StreamSession,
+} from "@/shared/api/room.service";
 import { RTMP_SERVER } from "@/shared/api/apiConfig";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { statisticsService, type StatsDashboard } from "@/shared/api/statistics.service";
@@ -56,6 +64,8 @@ import { Link } from "react-router-dom";
 import { useI18n, useI18nFormatters } from "@/shared/i18n";
 
 const STREAM_KEY_STORAGE_KEY = "roomStreamKeys";
+const END_FINALIZE_POLL_MS = 1_000;
+const END_FINALIZE_MAX_ATTEMPTS = 8;
 
 function readStreamKeyCache(): Record<string, string> {
   try {
@@ -95,6 +105,12 @@ async function writeToClipboard(text: string): Promise<void> {
   textarea.select();
   document.execCommand("copy");
   document.body.removeChild(textarea);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 export function DashboardPage() {
@@ -160,7 +176,7 @@ export function DashboardPage() {
       };
 
       setRoom(nextRoom);
-      syncActiveRoom(hasActiveLiveSession(nextRoom) ? nextRoom : null);
+      syncActiveRoom(hasActiveLiveSession(nextRoom) || isEndingInProgress(nextRoom) ? nextRoom : null);
       setEditTitle(currentRoom.title);
       const cat = categories.find(c => c.name === currentRoom.categoryName);
       if (cat) setEditCategoryId(cat.id);
@@ -204,6 +220,34 @@ export function DashboardPage() {
       // individual handlers already surface specific errors
     } finally {
       setIsRefreshingStudio(false);
+    }
+  };
+
+  const waitForRoomEndFinalization = async () => {
+    for (let attempt = 0; attempt < END_FINALIZE_MAX_ATTEMPTS; attempt += 1) {
+      await sleep(END_FINALIZE_POLL_MS);
+
+      const res = await roomService.getMyRoom();
+      const currentRoom = res.data;
+
+      if (!currentRoom) {
+        setRoom(null);
+        clearActiveRoom();
+        return;
+      }
+
+      const cachedStreamKey = getCachedStreamKey(currentRoom.roomId);
+      const nextRoom: RoomDetail = {
+        ...currentRoom,
+        streamKey: cachedStreamKey,
+      };
+
+      setRoom(nextRoom);
+      syncActiveRoom(hasActiveLiveSession(nextRoom) || isEndingInProgress(nextRoom) ? nextRoom : null);
+
+      if (!isEndingInProgress(nextRoom)) {
+        return;
+      }
     }
   };
 
@@ -285,7 +329,7 @@ export function DashboardPage() {
             streamKey: cachedStreamKey ?? prev?.streamKey,
           }));
           syncActiveRoom(
-            hasActiveLiveSession(currentRoom)
+            hasActiveLiveSession(currentRoom) || isEndingInProgress(currentRoom)
               ? {
                   ...currentRoom,
                   streamKey: cachedStreamKey,
@@ -323,7 +367,7 @@ export function DashboardPage() {
   // ── Tạo phòng mới (nếu chưa có) ───────────────────────────────────────
   // ── Ép kết thúc Stream thủ công ───────────────────────────────────────
   const handleStartStream = async () => {
-    if (!room?.roomId || hasActiveLiveSession(room)) return;
+    if (!room?.roomId || !isStartingAllowed(room)) return;
 
     const title = startTitle.trim() || room.title || t("dashboard.createDialog.defaultTitle");
     const categoryId = startCategoryId || editCategoryId || categories[0]?.id || 1;
@@ -347,11 +391,24 @@ export function DashboardPage() {
   };
 
   const handleEndStream = async () => {
-    if (!room?.roomId) return;
+    if (!room?.roomId || !hasActiveLiveSession(room)) return;
     setIsUpdating(true);
     try {
       await roomService.endMyStream(room.roomId);
+      const endingRoom: RoomDetail = {
+        ...room,
+        activeSessionId: null,
+        status: "ENDING",
+        viewers: 0,
+      };
+      setRoom(endingRoom);
+      syncActiveRoom(endingRoom);
       toast.success(t("dashboard.toast.endSuccess"));
+      try {
+        await waitForRoomEndFinalization();
+      } catch (pollError) {
+        console.warn("[rooms] end finalization polling failed", extractApiErrorMessage(pollError));
+      }
       await Promise.all([
         fetchMyRoom(),
         fetchSessions(),
@@ -453,9 +510,53 @@ export function DashboardPage() {
   }
 
   const isLive = hasActiveLiveSession(room);
+  const isEnding = isEndingInProgress(room);
+  const canStartStream = isStartingAllowed(room);
+  const canEndStream = isLive && !isEnding;
+  const isRoomBanned = room.status === "BANNED";
+  const isRoomReconnecting = room.status === "RECONNECTING";
+  const latestEndedSession = sessions.find((session) => Boolean(session.endedAt)) ?? null;
+  const shouldShowLatestEndedSession =
+    Boolean(latestEndedSession) && (room.status === "ENDED" || isEnding);
   const hasPlaybackUrl = Boolean(room.hlsUrl);
   const hasStreamKey = Boolean(room.streamKey);
   const chart30Days = Array.isArray(stats?.chart30Days) ? stats.chart30Days : [];
+  const statusLabel =
+    room.status === "LIVE"
+      ? t("dashboard.status.live")
+      : room.status === "RECONNECTING"
+      ? t("dashboard.status.reconnecting")
+      : room.status === "ENDING"
+      ? t("dashboard.status.ending")
+      : room.status === "ENDED"
+      ? t("dashboard.status.ended")
+      : room.status === "BANNED"
+      ? t("dashboard.status.banned")
+      : t("dashboard.status.ready");
+  const statusDescription =
+    room.status === "LIVE"
+      ? t("dashboard.status.liveDescription")
+      : room.status === "RECONNECTING"
+      ? t("dashboard.status.reconnectingDescription")
+      : room.status === "ENDING"
+      ? t("dashboard.status.endingDescription")
+      : room.status === "ENDED"
+      ? t("dashboard.status.endedDescription")
+      : room.status === "BANNED"
+      ? t("dashboard.status.bannedDescription")
+      : t("dashboard.status.readyDescription");
+  const statusClassName =
+    room.status === "LIVE"
+      ? "border-red-500/30 bg-red-500/15 text-red-200"
+      : room.status === "RECONNECTING"
+      ? "border-amber-500/30 bg-amber-500/15 text-amber-200"
+      : room.status === "ENDING"
+      ? "border-blue-500/30 bg-blue-500/15 text-blue-200"
+      : room.status === "ENDED"
+      ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-200"
+      : room.status === "BANNED"
+      ? "border-red-700/40 bg-red-950/40 text-red-300"
+      : "border-slate-500/30 bg-slate-500/15 text-slate-200";
 
   return (
     <div className="flex h-[calc(100vh-var(--app-header-offset))] overflow-hidden bg-[#0f0f0f] text-gray-100">
@@ -466,13 +567,22 @@ export function DashboardPage() {
         {/* Top Header Bar */}
         <header className="flex items-center justify-between px-6 py-4 bg-[#212121] border-b border-[#3d3d3d] shadow-sm sticky top-0 z-10">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-full ${isLive ? 'bg-red-500/20' : 'bg-gray-700'}`}>
-              <Radio className={`w-5 h-5 ${isLive ? 'text-red-500 animate-pulse' : 'text-gray-400'}`} />
+            <div className={`p-2 rounded-full ${isLive ? "bg-red-500/20" : isEnding ? "bg-blue-500/20" : "bg-gray-700"}`}>
+              {isEnding ? (
+                <Loader2 className="h-5 w-5 animate-spin text-blue-300" />
+              ) : (
+                <Radio className={`w-5 h-5 ${isLive ? "text-red-500 animate-pulse" : "text-gray-400"}`} />
+              )}
             </div>
             <div>
-              <h1 className="text-lg font-bold">{t("dashboard.studio.title")}</h1>
-              <p className="text-xs text-gray-400 font-mono">
-                {t("dashboard.studio.status")}: <span className={isLive ? "text-green-400" : ""}>{room.status}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-lg font-bold">{t("dashboard.studio.title")}</h1>
+                <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${statusClassName}`}>
+                  {statusLabel}
+                </span>
+              </div>
+              <p className="text-xs text-gray-400">
+                {statusDescription}
               </p>
             </div>
           </div>
@@ -508,17 +618,57 @@ export function DashboardPage() {
               </Button>
             )}
             
-            <Button 
-              variant={isLive ? "destructive" : "secondary"} 
-              onClick={isLive ? handleEndStream : openStartDialog}
-              disabled={isUpdating}
-              className={`font-bold transition-all ${!isLive ? "bg-[#3d3d3d] hover:bg-[#4d4d4d] text-white" : ""}`}
-            >
-              {isUpdating && isLive ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : (
-                 isLive ? <Square className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />
-              )}
-              {isLive ? t("dashboard.studio.endStream") : t("dashboard.onboarding.start")}
-            </Button>
+            {canEndStream ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    disabled={isUpdating}
+                    className="font-bold transition-all"
+                  >
+                    {isUpdating ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Square className="w-4 h-4 mr-2" />
+                    )}
+                    {isRoomReconnecting ? t("dashboard.studio.endSession") : t("dashboard.studio.endStream")}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="bg-[#18181b] border-[#3d3d3d] text-white">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t("dashboard.endDialog.title")}</AlertDialogTitle>
+                    <AlertDialogDescription className="text-gray-400">
+                      {t("dashboard.endDialog.description")}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="border-[#4d4d4d] bg-transparent text-white hover:bg-[#2d2d2d]">
+                      {t("actions.cancel")}
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-red-600 text-white hover:bg-red-700"
+                      onClick={() => void handleEndStream()}
+                    >
+                      {t("dashboard.endDialog.confirm")}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : (
+              <Button
+                variant="secondary"
+                onClick={openStartDialog}
+                disabled={isUpdating || !canStartStream || isRoomBanned}
+                className="bg-[#3d3d3d] font-bold text-white transition-all hover:bg-[#4d4d4d] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isEnding || isUpdating ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {isEnding ? t("dashboard.studio.endingStream") : t("dashboard.onboarding.start")}
+              </Button>
+            )}
           </div>
         </header>
 
@@ -597,13 +747,27 @@ export function DashboardPage() {
             ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-[#18181b] to-black">
                     <div className="w-24 h-24 mb-4 rounded-full bg-[#2d2d2d] flex items-center justify-center shadow-inner">
-                      <Video className="w-10 h-10 text-gray-500" />
+                      {isEnding ? (
+                        <Loader2 className="w-10 h-10 animate-spin text-blue-300" />
+                      ) : (
+                        <Video className="w-10 h-10 text-gray-500" />
+                      )}
                     </div>
                     <p className="text-xl font-bold mb-2">
-                      {isLive ? t("dashboard.preview.waitingHls") : t("dashboard.preview.waitingEvent")}
+                      {isEnding
+                        ? t("dashboard.preview.ending")
+                        : room.status === "ENDED"
+                        ? t("dashboard.preview.ended")
+                        : isLive
+                        ? t("dashboard.preview.waitingHls")
+                        : t("dashboard.preview.waitingEvent")}
                     </p>
                     <p className="text-sm text-gray-400 max-w-md text-center">
-                      {isLive
+                      {isEnding
+                        ? t("dashboard.preview.endingHint")
+                        : room.status === "ENDED"
+                        ? t("dashboard.preview.endedHint")
+                        : isLive
                         ? t("dashboard.preview.hlsHint")
                         : t("dashboard.preview.obsHint")}
                     </p>
@@ -627,6 +791,55 @@ export function DashboardPage() {
               >
                 {t("dashboard.manageVideos")}
               </button>
+            </div>
+          )}
+
+          {shouldShowLatestEndedSession && latestEndedSession && (
+            <div className="rounded-lg border border-emerald-800/70 bg-emerald-950/20 p-4 text-sm text-emerald-100">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="min-w-0">
+                  <p className="mb-1 text-xs font-bold uppercase tracking-widest text-emerald-300">
+                    {t("dashboard.latestSession.title")}
+                  </p>
+                  <h3 className="truncate text-base font-semibold text-white">
+                    {latestEndedSession.title || t("dashboard.history.untitled")}
+                  </h3>
+                  <p className="mt-1 text-xs text-emerald-200/80">
+                    {t("dashboard.latestSession.description")}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded border border-emerald-700/70 bg-black/20 px-2.5 py-1 text-xs text-emerald-200">
+                    {latestEndedSession.vodStatus === "DONE"
+                      ? t("dashboard.history.statusDone")
+                      : latestEndedSession.vodStatus === "FAILED"
+                      ? t("dashboard.history.statusFailed")
+                      : latestEndedSession.vodStatus === "DRAFT"
+                      ? t("dashboard.history.statusDraft")
+                      : latestEndedSession.vodStatus === "UPLOADING"
+                      ? t("dashboard.history.statusUploading")
+                      : t("dashboard.history.statusProcessing")}
+                  </span>
+                  {latestEndedSession.vodStatus === "DONE" && latestEndedSession.vodUrl ? (
+                    <Button asChild size="sm" className="bg-emerald-500 text-black hover:bg-emerald-400">
+                      <Link to={`/vod/${latestEndedSession.id}`}>
+                        <Play className="mr-2 h-3.5 w-3.5" />
+                        {t("dashboard.latestSession.watchReplay")}
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setActiveStudioTab("vods")}
+                      className="border-emerald-700 bg-transparent text-emerald-100 hover:bg-emerald-900/40"
+                    >
+                      {t("dashboard.latestSession.openHistory")}
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -866,7 +1079,30 @@ export function DashboardPage() {
                                       {s.durationMinutes > 0 && <span className="absolute bottom-1 right-1 bg-black/80 px-1 rounded text-[10px] text-white">{s.durationMinutes}m</span>}
                                   </div>
                                   <div>
-                                      <h4 className="font-bold text-gray-100 line-clamp-1">{s.title || t("dashboard.history.untitled")}</h4>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <h4 className="font-bold text-gray-100 line-clamp-1">{s.title || t("dashboard.history.untitled")}</h4>
+                                        <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                                          s.vodStatus === "DONE"
+                                            ? "border-emerald-800 bg-emerald-950/30 text-emerald-300"
+                                            : s.vodStatus === "FAILED"
+                                            ? "border-red-800 bg-red-950/30 text-red-300"
+                                            : s.vodStatus === "DRAFT"
+                                            ? "border-amber-800 bg-amber-950/30 text-amber-300"
+                                            : s.vodStatus === "UPLOADING"
+                                            ? "border-blue-800 bg-blue-950/30 text-blue-300"
+                                            : "border-[#4d4d4d] bg-[#2d2d2d] text-gray-300"
+                                        }`}>
+                                          {s.vodStatus === "DONE"
+                                            ? t("dashboard.history.statusDone")
+                                            : s.vodStatus === "FAILED"
+                                            ? t("dashboard.history.statusFailed")
+                                            : s.vodStatus === "DRAFT"
+                                            ? t("dashboard.history.statusDraft")
+                                            : s.vodStatus === "UPLOADING"
+                                            ? t("dashboard.history.statusUploading")
+                                            : t("dashboard.history.statusProcessing")}
+                                        </span>
+                                      </div>
                                       <div className="flex items-center gap-3 text-xs text-gray-400 mt-1">
                                           <span>{formatDate(s.startedAt, { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" })}</span>
                                           <span className="w-1 h-1 bg-gray-600 rounded-full" />
@@ -1002,7 +1238,7 @@ export function DashboardPage() {
          </div>
          <div className="flex-1 overflow-hidden">
             {/* Tái sử dụng component ChatBoard ở chế độ Dashboard */}
-            <ChatBoard roomId={room.roomId} sessionId={room.activeSessionId ?? null} />
+            <ChatBoard roomId={room.roomId} sessionId={isChatOpen(room) ? room.activeSessionId ?? null : null} />
          </div>
       </div>
     </div>

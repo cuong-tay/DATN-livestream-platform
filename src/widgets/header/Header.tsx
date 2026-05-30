@@ -7,6 +7,7 @@ import { NotificationBell } from "@/widgets/notification-bell/NotificationBell";
 import { useAuth } from "@/app/providers/AuthContext";
 import { useStreamContext } from "@/app/providers/StreamContext";
 import { useI18n } from "@/shared/i18n";
+import { isEndingInProgress } from "@/shared/api/room.service";
 
 export function Header() {
   const { t } = useI18n();
@@ -19,6 +20,8 @@ export function Header() {
   const [isAuthOpen, setAuthOpen] = useState(false);
   const [authTab, setAuthTab] = useState<"login" | "register">("login");
   const isCurrentlyLive = activeRoom?.status === "LIVE" || activeRoom?.status === "RECONNECTING";
+  const isEnding = isEndingInProgress(activeRoom);
+  const shouldShowStreamBanner = Boolean(activeRoom && (hasActiveStream || isEnding));
   const headerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -77,20 +80,30 @@ export function Header() {
     const resizeObserver = new ResizeObserver(updateOffset);
     resizeObserver.observe(headerNode);
     return () => resizeObserver.disconnect();
-  }, [hasActiveStream, activeRoom?.title]);
+  }, [hasActiveStream, activeRoom?.title, isEnding]);
 
   return (
     <header
       ref={headerRef}
       className="fixed top-0 left-0 right-0 bg-background border-b border-border z-50"
     >
-      {hasActiveStream && activeRoom && (
-        <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2">
+      {shouldShowStreamBanner && activeRoom && (
+        <div className={`border-b px-4 py-2 ${
+          isEnding ? "border-blue-500/30 bg-blue-500/10" : "border-red-500/30 bg-red-500/10"
+        }`}>
           <div className="mx-auto flex max-w-[1920px] items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2 text-sm text-foreground">
-              <Radio className={`h-4 w-4 ${isCurrentlyLive ? "animate-pulse text-red-500" : "text-amber-500"}`} />
+              {isEnding ? (
+                <RefreshCw className="h-4 w-4 animate-spin text-blue-500" />
+              ) : (
+                <Radio className={`h-4 w-4 ${isCurrentlyLive ? "animate-pulse text-red-500" : "text-amber-500"}`} />
+              )}
               <span className="truncate font-medium">
-                {isCurrentlyLive ? t("header.activeLive") : t("header.pendingLive")}
+                {isEnding
+                  ? t("header.endingLive")
+                  : isCurrentlyLive
+                  ? t("header.activeLive")
+                  : t("header.pendingLive")}
                 {activeRoom.title ? `: ${activeRoom.title}` : ""}
               </span>
             </div>
