@@ -1,6 +1,7 @@
 ﻿import { useParams, Link } from "react-router-dom";
 import { Heart, Share2, Flag, Users, ChevronDown, Loader2, AlertCircle, DollarSign } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { useStableHlsSource, VideoPlayer, useWatchRoom } from "@/features/play-stream";
 import { ChatBoard } from "@/widgets/chat-board";
 import { DonateModal } from "@/features/donate";
@@ -156,6 +157,31 @@ export function StreamPage() {
       // silently fail
     } finally {
       setFollowLoading(false);
+    }
+  };
+
+  const handleShare = async () => {
+    if (!room) return;
+    const shareUrl = window.location.href;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: room.title,
+          text: `${room.title} - ${room.streamerUsername}`,
+          url: shareUrl,
+        });
+        return;
+      }
+
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success(t("stream.shareCopied"));
+    } catch (shareError) {
+      if (shareError instanceof DOMException && shareError.name === "AbortError") {
+        return;
+      }
+
+      toast.error(t("stream.shareFailed"));
     }
   };
 
@@ -348,7 +374,10 @@ export function StreamPage() {
               {room.activeSessionId && (
                 <SessionReactionPill sessionId={room.activeSessionId} />
               )}
-              <button className="flex items-center gap-2 rounded-full bg-muted px-4 py-2 text-foreground transition hover:bg-accent">
+              <button
+                onClick={() => void handleShare()}
+                className="flex items-center gap-2 rounded-full bg-muted px-4 py-2 text-foreground transition hover:bg-accent"
+              >
                 <Share2 className="w-4 h-4" />
                 {t("stream.share")}
               </button>

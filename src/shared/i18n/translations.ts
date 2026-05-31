@@ -614,6 +614,8 @@ export const translations = {
     "stream.live": "Live",
     "stream.about": "About this stream",
     "stream.share": "Share",
+    "stream.shareCopied": "Stream link copied.",
+    "stream.shareFailed": "Could not share this stream.",
     "stream.report": "Report",
 
     "donate.loginRequired": "Please log in to donate.",
@@ -1258,6 +1260,8 @@ export const translations = {
     "stream.live": "Trực tiếp",
     "stream.about": "Giới thiệu stream",
     "stream.share": "Chia sẻ",
+    "stream.shareCopied": "Đã sao chép liên kết stream.",
+    "stream.shareFailed": "Không thể chia sẻ stream này.",
     "stream.report": "Báo cáo",
 
     "donate.loginRequired": "Vui lòng đăng nhập để gửi tiền ủng hộ.",
@@ -1902,6 +1906,8 @@ export const translations = {
     "stream.live": "En vivo",
     "stream.about": "Acerca de este stream",
     "stream.share": "Compartir",
+    "stream.shareCopied": "Enlace del stream copiado.",
+    "stream.shareFailed": "No se pudo compartir este stream.",
     "stream.report": "Reportar",
 
     "donate.loginRequired": "Inicia sesión para donar.",
