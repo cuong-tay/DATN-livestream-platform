@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type PermissionState = "default" | "granted" | "denied" | "unsupported";
 
@@ -103,51 +103,4 @@ export function playNotificationSound(): void {
   } catch {
     // Audio playback failed
   }
-}
-
-export function useRealtimeNotifications(
-  isAuthenticated: boolean,
-  subscribeFn: (destination: string, handler: (frame: { body: string }) => void) => (() => void),
-  onNotification?: (notification: RealtimeNotification) => void,
-) {
-  const onNotificationRef = useRef(onNotification);
-  onNotificationRef.current = onNotification;
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
-
-    return subscribeFn("/user/queue/notifications", (frame) => {
-      try {
-        const payload = JSON.parse(frame.body) as RealtimeNotification;
-        onNotificationRef.current?.(payload);
-
-        if (document.hidden && Notification.permission === "granted") {
-          playNotificationSound();
-          showBrowserNotification(payload.title ?? "Thông báo mới", {
-            body: payload.message,
-            tag: `notif-${payload.id ?? Date.now()}`,
-            onClick: () => {
-              if (payload.link) {
-                window.location.href = payload.link;
-              }
-            },
-          });
-        } else if (!document.hidden && Notification.permission === "granted") {
-          playNotificationSound();
-        }
-      } catch {
-        // malformed notification payload
-      }
-    });
-  }, [isAuthenticated, subscribeFn]);
-}
-
-export interface RealtimeNotification {
-  id?: number;
-  type?: string;
-  title?: string;
-  message: string;
-  link?: string;
-  isRead?: boolean;
-  createdAt?: string;
 }

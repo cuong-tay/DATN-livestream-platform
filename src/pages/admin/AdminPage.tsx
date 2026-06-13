@@ -31,6 +31,7 @@ import {
 } from "@/shared/api/report.service";
 import { extractApiErrorMessage, hasHttpStatus } from "@/shared/api/httpClient";
 import { useI18n, useI18nFormatters, type TranslationKey } from "@/shared/i18n";
+import { parseChatTimestamp } from "@/shared/lib/formatters";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -317,7 +318,7 @@ export function AdminPage() {
     isCreatingCategory || isUpdatingCategory || isDeletingCategory || isCategoriesRefreshing;
 
   const formatDateTime = (dateStr: string) => {
-    const date = new Date(dateStr);
+    const date = parseChatTimestamp(dateStr);
     if (Number.isNaN(date.getTime())) {
       return dateStr;
     }

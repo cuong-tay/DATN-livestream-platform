@@ -68,6 +68,7 @@ import { ChatModerationPanel } from "@/features/chat-moderation/ui/ChatModeratio
 import { ChatBoard } from "@/widgets/chat-board";
 import { Link } from "react-router-dom";
 import { useI18n, useI18nFormatters } from "@/shared/i18n";
+import { parseChatTimestamp } from "@/shared/lib/formatters";
 
 const STREAM_KEY_STORAGE_KEY = "roomStreamKeys";
 const END_FINALIZE_POLL_MS = 1_000;
@@ -120,7 +121,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function readSessionTime(session: StreamSession): number {
-  const timestamp = new Date(session.startedAt).getTime();
+  const timestamp = parseChatTimestamp(session.startedAt).getTime();
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 

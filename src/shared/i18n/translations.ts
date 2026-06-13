@@ -527,6 +527,7 @@ export const translations = {
     "notifications.permissionAllow": "Enable",
     "notifications.permissionLater": "Later",
     "notifications.enableBrowser": "Enable alerts",
+    "notifications.newNotification": "You have {count} new notification(s)",
 
     "chat.title": "Stream Chat",
     "chat.replayTitle": "Chat Replay",
@@ -1178,6 +1179,7 @@ export const translations = {
     "notifications.permissionAllow": "Cho phép",
     "notifications.permissionLater": "Để sau",
     "notifications.enableBrowser": "Bật thông báo",
+    "notifications.newNotification": "Bạn có {count} thông báo mới",
 
     "chat.title": "Trò chuyện trực tiếp",
     "chat.replayTitle": "Phát lại trò chuyện",
@@ -1829,6 +1831,7 @@ export const translations = {
     "notifications.permissionAllow": "Activar",
     "notifications.permissionLater": "Más tarde",
     "notifications.enableBrowser": "Activar alertas",
+    "notifications.newNotification": "Tienes {count} notificación(es) nueva(s)",
 
     "chat.title": "Chat del stream",
     "chat.replayTitle": "Replay del chat",

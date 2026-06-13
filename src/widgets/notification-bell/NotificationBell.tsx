@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell, BellRing, X } from "lucide-react";
 import { notificationService, type NotificationItem } from "@/shared/api/notification.service";
 import { useAuth } from "@/app/providers/AuthContext";
@@ -13,15 +13,12 @@ import {
 import { useI18n } from "@/shared/i18n";
 import {
   useNotificationPermission,
-  useRealtimeNotifications,
   showBrowserNotification,
   playNotificationSound,
-  type RealtimeNotification,
 } from "@/shared/lib/browserNotification";
-import { subscribeToTopic, ensureStompConnection } from "@/shared/lib/stompClient";
 import { parseChatTimestamp } from "@/shared/lib/formatters";
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 30_000;
 
 export function NotificationBell() {
   const { isAuthenticated, logout } = useAuth();
@@ -31,6 +28,7 @@ export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [bellAnimating, setBellAnimating] = useState(false);
+  const prevUnreadCountRef = useRef(0);
 
   const {
     permission,
@@ -39,14 +37,37 @@ export function NotificationBell() {
     dismissPrompt,
   } = useNotificationPermission();
 
-  // Fetch unread count via REST (fallback polling, less frequent now with STOMP)
   useEffect(() => {
     if (!isAuthenticated) return;
+
+    let isMounted = true;
 
     const fetchUnreadCount = async () => {
       try {
         const res = await notificationService.getUnreadCount();
-        setUnreadCount(res.data.unreadCount);
+        if (!isMounted) return;
+
+        const newCount = res.data.unreadCount;
+        const prevCount = prevUnreadCountRef.current;
+
+        if (newCount > prevCount && prevCount >= 0) {
+          setBellAnimating(true);
+          setTimeout(() => setBellAnimating(false), 1500);
+
+          if (permission === "granted") {
+            playNotificationSound();
+
+            if (document.hidden) {
+              showBrowserNotification(t("notifications.title"), {
+                body: t("notifications.newNotification", { count: newCount - prevCount }),
+                tag: `notif-poll-${Date.now()}`,
+              });
+            }
+          }
+        }
+
+        prevUnreadCountRef.current = newCount;
+        setUnreadCount(newCount);
       } catch (error) {
         if (hasHttpStatus(error, 403) || hasHttpStatus(error, 401)) {
           logout();
@@ -57,59 +78,11 @@ export function NotificationBell() {
     fetchUnreadCount();
     const intervalId = setInterval(fetchUnreadCount, POLL_INTERVAL_MS);
 
-    return () => clearInterval(intervalId);
-  }, [isAuthenticated, logout]);
-
-  // Ensure STOMP is connected when authenticated
-  useEffect(() => {
-    if (isAuthenticated) {
-      ensureStompConnection();
-    }
-  }, [isAuthenticated]);
-
-  const handleRealtimeNotification = useCallback(
-    (payload: RealtimeNotification) => {
-      setUnreadCount((prev) => prev + 1);
-
-      const newItem: NotificationItem = {
-        id: payload.id ?? Date.now(),
-        type: (payload.type as NotificationItem["type"]) ?? "STREAM_LIVE",
-        message: payload.message,
-        isRead: false,
-        createdAt: payload.createdAt ?? new Date().toISOString(),
-      };
-      setNotifications((prev) => [newItem, ...prev].slice(0, 20));
-
-      setBellAnimating(true);
-      setTimeout(() => setBellAnimating(false), 1500);
-
-      if (permission === "granted") {
-        const isTabHidden = document.hidden;
-
-        if (isTabHidden) {
-          showBrowserNotification(payload.title ?? t("notifications.title"), {
-            body: payload.message,
-            tag: `notif-${newItem.id}`,
-            onClick: () => {
-              if (payload.link) {
-                window.location.href = payload.link;
-              }
-            },
-          });
-        }
-
-        playNotificationSound();
-      }
-    },
-    [permission, t],
-  );
-
-  // STOMP realtime subscription
-  useRealtimeNotifications(
-    isAuthenticated,
-    subscribeToTopic,
-    handleRealtimeNotification,
-  );
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [isAuthenticated, logout, permission, t]);
 
   const fetchNotifications = async () => {
     setIsLoading(true);
@@ -140,6 +113,7 @@ export function NotificationBell() {
         prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
+      prevUnreadCountRef.current = Math.max(0, prevUnreadCountRef.current - 1);
     } catch (error) {
       if (hasHttpStatus(error, 403) || hasHttpStatus(error, 401)) {
         logout();
@@ -152,6 +126,7 @@ export function NotificationBell() {
       await notificationService.markAllAsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
       setUnreadCount(0);
+      prevUnreadCountRef.current = 0;
     } catch (error) {
       if (hasHttpStatus(error, 403) || hasHttpStatus(error, 401)) {
         logout();
@@ -175,7 +150,6 @@ export function NotificationBell() {
 
   return (
     <div className="relative">
-      {/* Permission prompt banner */}
       {showPrompt && permission === "default" && (
         <div className="absolute right-0 top-full mt-2 z-50 w-[320px] rounded-lg border border-border bg-card p-3 shadow-xl animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-start gap-3">

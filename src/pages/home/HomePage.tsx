@@ -10,6 +10,7 @@ import { followService, type FollowUser } from "@/shared/api/follow.service";
 import { roomService, type PublicVodItem, type RoomLiveItem } from "@/shared/api/room.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { useI18nFormatters } from "@/shared/i18n";
+import { parseChatTimestamp } from "@/shared/lib/formatters";
 
 function VodRecommendationCard({ vod }: { vod: PublicVodItem }) {
   const { formatNumber, formatDate } = useI18nFormatters();
@@ -131,7 +132,7 @@ export function HomePage() {
         const nextVods = vodResponses
           .flatMap((result) => (result.status === "fulfilled" ? result.value.data.content : []))
           .filter((vod) => streamerIds.has(vod.streamerId))
-          .sort((left, right) => new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime())
+          .sort((left, right) => parseChatTimestamp(right.startedAt).getTime() - parseChatTimestamp(left.startedAt).getTime())
           .slice(0, 12);
 
         setFollowedVods(nextVods);

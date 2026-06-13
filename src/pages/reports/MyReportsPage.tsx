@@ -5,6 +5,7 @@ import { reportService, type ReportItem } from "@/shared/api/report.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui";
 import { useI18nFormatters } from "@/shared/i18n";
+import { parseChatTimestamp } from "@/shared/lib/formatters";
 
 const PAGE_SIZE = 20;
 
@@ -64,7 +65,7 @@ export function MyReportsPage() {
   const formatDateTime = useMemo(
     () => (value: string | null | undefined) => {
       if (!value) return "Chưa có";
-      const date = new Date(value);
+      const date = parseChatTimestamp(value);
       if (Number.isNaN(date.getTime())) return value;
       return formatDate(date, {
         dateStyle: "short",

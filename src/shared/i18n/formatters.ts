@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useI18n } from "./I18nContext";
 import type { LanguageCode } from "./translations";
+import { parseChatTimestamp } from "@/shared/lib/formatters";
 
 const localeByLanguage: Record<LanguageCode, string> = {
   vi: "vi-VN",
@@ -50,7 +51,7 @@ export function formatLocalizedDate(
     return "";
   }
 
-  const date = value instanceof Date ? value : new Date(value);
+  const date = value instanceof Date ? value : parseChatTimestamp(String(value));
   if (Number.isNaN(date.getTime())) {
     return "";
   }
