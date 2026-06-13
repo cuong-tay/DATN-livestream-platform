@@ -55,8 +55,13 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger
+  AlertDialogTrigger,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
 } from "@/shared/ui";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { toast } from "sonner";
 import { useStableHlsSource, VideoPlayer } from "@/features/play-stream";
 import { ChatModerationPanel } from "@/features/chat-moderation/ui/ChatModerationPanel";
@@ -1118,19 +1123,90 @@ export function DashboardPage() {
                       </div>
 
                       <div className="rounded-lg border border-[#3d3d3d] bg-[#212121] p-4">
-                        <h4 className="font-semibold text-white mb-3">{t("dashboard.analytics.last30Days")}</h4>
+                        <h4 className="font-semibold text-white mb-4">{t("dashboard.analytics.last30Days")}</h4>
                         {chart30Days.length === 0 ? (
                           <p className="text-sm text-gray-400">{t("dashboard.analytics.noChartData")}</p>
                         ) : (
-                          <div className="space-y-2">
-                            {chart30Days.slice(-5).map((item) => (
-                              <div key={item.date} className="flex items-center justify-between text-sm text-gray-300">
-                                <span>{item.date}</span>
-                                <span>{formatNumber(item.viewers)} {t("dashboard.analytics.viewers")}</span>
-                                <span>{formatCurrency(item.donations, "VND", { maximumFractionDigits: 0 })}</span>
-                              </div>
-                            ))}
-                          </div>
+                          <ChartContainer
+                            config={{
+                              viewers: { label: t("dashboard.analytics.viewers"), color: "#10b981" },
+                              donations: { label: t("dashboard.analytics.donations"), color: "#818cf8" },
+                            } satisfies ChartConfig}
+                            className="h-[300px] w-full [&_.recharts-cartesian-axis-tick_text]:!fill-gray-400"
+                          >
+                            <AreaChart data={chart30Days} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                              <defs>
+                                <linearGradient id="gradViewers" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
+                                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.02} />
+                                </linearGradient>
+                                <linearGradient id="gradDonations" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#818cf8" stopOpacity={0.35} />
+                                  <stop offset="100%" stopColor="#818cf8" stopOpacity={0.02} />
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
+                              <XAxis
+                                dataKey="date"
+                                tickLine={false}
+                                axisLine={false}
+                                tick={{ fontSize: 11 }}
+                                tickFormatter={(v: string) => v.slice(5)}
+                                interval="preserveStartEnd"
+                              />
+                              <YAxis
+                                yAxisId="viewers"
+                                tickLine={false}
+                                axisLine={false}
+                                tick={{ fontSize: 11 }}
+                                width={40}
+                              />
+                              <YAxis
+                                yAxisId="donations"
+                                orientation="right"
+                                tickLine={false}
+                                axisLine={false}
+                                tick={{ fontSize: 11 }}
+                                width={55}
+                                tickFormatter={(v: number) =>
+                                  v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` :
+                                  v >= 1_000 ? `${(v / 1_000).toFixed(0)}K` : String(v)
+                                }
+                              />
+                              <ChartTooltip
+                                content={
+                                  <ChartTooltipContent
+                                    formatter={(value, name) => {
+                                      if (name === "donations") {
+                                        return formatCurrency(Number(value), "VND", { maximumFractionDigits: 0 });
+                                      }
+                                      return formatNumber(Number(value));
+                                    }}
+                                  />
+                                }
+                              />
+                              <Area
+                                yAxisId="viewers"
+                                dataKey="viewers"
+                                type="monotone"
+                                stroke="#10b981"
+                                strokeWidth={2}
+                                fill="url(#gradViewers)"
+                                dot={false}
+                                activeDot={{ r: 4, strokeWidth: 0 }}
+                              />
+                              <Area
+                                yAxisId="donations"
+                                dataKey="donations"
+                                type="monotone"
+                                stroke="#818cf8"
+                                strokeWidth={2}
+                                fill="url(#gradDonations)"
+                                dot={false}
+                                activeDot={{ r: 4, strokeWidth: 0 }}
+                              />
+                            </AreaChart>
+                          </ChartContainer>
                         )}
                       </div>
                     </>

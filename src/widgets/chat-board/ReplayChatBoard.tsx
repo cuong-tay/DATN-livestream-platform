@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatChatTime } from "@/shared/lib/formatters";
+import { formatChatTime, parseChatTimestamp } from "@/shared/lib/formatters";
 import { roomService, type ChatMessageResponse } from "@/shared/api/room.service";
 import { useI18n } from "@/shared/i18n";
 
@@ -36,11 +36,11 @@ export function ReplayChatBoard({ sessionId, currentTime, sessionStart }: Replay
   useEffect(() => {
      if (!messages.length || !sessionStart) return;
 
-     const startMs = new Date(sessionStart).getTime();
+     const startMs = parseChatTimestamp(sessionStart).getTime();
      const newDisplayed = messages.filter((msg) => {
        const chatTimestamp = msg.timestamp ?? msg.createdAt;
        if (!chatTimestamp) return false;
-       const chatMs = new Date(chatTimestamp).getTime();
+       const chatMs = parseChatTimestamp(chatTimestamp).getTime();
        const offsetSec = (chatMs - startMs) / 1000;
        return offsetSec <= currentTime;
      });
@@ -79,7 +79,7 @@ export function ReplayChatBoard({ sessionId, currentTime, sessionStart }: Replay
           <div key={`${msg.senderName}-${msg.timestamp ?? msg.createdAt ?? idx}-${idx}`} className="text-sm leading-relaxed group flex items-start justify-between">
              <div>
                <span className="text-xs text-gray-500 mr-2">
-                 {formatChatTime(new Date(msg.timestamp ?? msg.createdAt ?? Date.now()))}
+                 {formatChatTime(parseChatTimestamp(msg.timestamp ?? msg.createdAt))}
                </span>
                <span className="font-semibold text-purple-400">
                  {msg.senderName}

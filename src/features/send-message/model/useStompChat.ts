@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { ChatMessage } from "@/entities/message/model/types";
 import { roomService, type ChatMessageResponse } from "@/shared/api/room.service";
 import { CHAT_COLORS, CHAT_MAX_MESSAGES } from "@/shared/lib/constants";
+import { parseChatTimestamp } from "@/shared/lib/formatters";
 import { useAuth } from "@/app/providers/AuthContext";
 import {
   ensureStompConnection,
@@ -146,13 +147,12 @@ function isPayloadForActiveSession(
 /** Map a REST history message to the UI ChatMessage shape */
 function mapHistoryMessage(msg: ChatMessageResponse, idx: number): ChatMessage {
   const rawTimestamp = msg.timestamp ?? msg.createdAt;
-  const parsedTimestamp = rawTimestamp ? new Date(rawTimestamp) : new Date();
   const messageType = normalizeMessageType(msg.messageType);
   return {
     id: msg.messageId || `hist-${idx}-${rawTimestamp ?? "unknown"}`,
     username: msg.senderName || (messageType === "BOT" ? "AI Bot" : "Anonymous"),
     message: readMessageText(msg),
-    timestamp: parsedTimestamp,
+    timestamp: parseChatTimestamp(rawTimestamp),
     color: messageType === "BOT" ? "#22d3ee" : randomColor(),
     sessionId: normalizeSessionId(msg.sessionId),
     messageType,
@@ -170,7 +170,7 @@ function mapIncomingMessage(
     id: readMessageId(payload) ?? id,
     username: payload.senderName || (messageType === "BOT" ? "AI Bot" : "Anonymous"),
     message: readMessageText(payload),
-    timestamp: rawTimestamp ? new Date(rawTimestamp) : new Date(),
+    timestamp: parseChatTimestamp(rawTimestamp),
     color: messageType === "BOT" ? "#22d3ee" : randomColor(),
     sessionId: normalizeSessionId(payload.sessionId),
     messageType,

@@ -231,6 +231,7 @@ export {
   ChartLegend,
   ChartLegendContent,
   ChartStyle,
+  type ChartConfig,
 } from "./chart";
 export {
   Sidebar,
