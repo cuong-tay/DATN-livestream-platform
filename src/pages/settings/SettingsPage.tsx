@@ -1,7 +1,10 @@
 import { Link } from "react-router-dom";
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
+  HeartHandshake,
   ImagePlus,
   Loader2,
   Lock,
@@ -12,7 +15,7 @@ import {
   UploadCloud,
   UserRound,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/app/providers/AuthContext";
@@ -23,14 +26,13 @@ import {
   type VerificationResponse,
 } from "@/shared/api/auth.service";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
-import { useI18n } from "@/shared/i18n";
+import { useI18n, useI18nFormatters } from "@/shared/i18n";
+import { donationService, type DonationItem } from "@/shared/api/donation.service";
+import { parseChatTimestamp } from "@/shared/lib/formatters";
 import {
   Button,
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Input,
   Label,
   Progress,
@@ -41,7 +43,7 @@ import {
   TabsTrigger,
 } from "@/shared/ui";
 
-type SettingsTab = "profile" | "email" | "password";
+type SettingsTab = "profile" | "email" | "password" | "donations";
 
 interface VerificationUiState {
   action: VerificationAction;
@@ -96,6 +98,138 @@ function isPublicHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+const DONATIONS_PAGE_SIZE = 10;
+
+function SentDonationsPanel() {
+  const { t, language } = useI18n();
+  const { formatCurrency } = useI18nFormatters();
+  const [donations, setDonations] = useState<DonationItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+
+  const fetchDonations = useCallback(async (p: number) => {
+    setIsLoading(true);
+    try {
+      const res = await donationService.getSentDonations({ page: p, size: DONATIONS_PAGE_SIZE });
+      setDonations(res.data.content);
+      setTotalPages(res.data.totalPages);
+      setTotalElements(res.data.totalElements);
+      setPage(p);
+    } catch {
+      toast.error(t("settings.donations.fetchError"));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    fetchDonations(0);
+  }, [fetchDonations]);
+
+  const formatDonationTime = (raw: string) => {
+    const d = parseChatTimestamp(raw);
+    return d.toLocaleString(language === "vi" ? "vi-VN" : language, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  return (
+    <div className="rounded-xl border border-border bg-background/40 p-4 sm:p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <HeartHandshake className="h-5 w-5 text-pink-500" />
+          <h2 className="text-lg font-semibold">{t("settings.donations.title")}</h2>
+          {totalElements > 0 && (
+            <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
+              {totalElements} {t("settings.donations.total")}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : donations.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <HeartHandshake className="mb-3 h-10 w-10 opacity-30" />
+          <p className="text-sm">{t("settings.donations.empty")}</p>
+        </div>
+      ) : (
+        <>
+          <div className="overflow-hidden rounded-lg border border-border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-secondary/50 text-xs uppercase tracking-wider text-muted-foreground">
+                  <th className="px-4 py-3 text-left font-medium">{t("settings.donations.to")}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t("settings.donations.amount")}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t("settings.donations.message")}</th>
+                  <th className="px-4 py-3 text-right font-medium">{t("settings.donations.time")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {donations.map((d) => (
+                  <tr key={d.id} className="transition-colors hover:bg-secondary/30">
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-foreground">{d.streamerUsername}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="font-semibold text-pink-400">
+                        {formatCurrency(d.amount, "VND", { maximumFractionDigits: 0 })}
+                      </span>
+                    </td>
+                    <td className="max-w-[220px] truncate px-4 py-3 text-muted-foreground">
+                      {d.message || <span className="italic text-muted-foreground/50">—</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-xs text-muted-foreground">
+                      {formatDonationTime(d.donatedAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                {t("settings.donations.page", { current: page + 1, total: totalPages })}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  disabled={page === 0}
+                  onClick={() => fetchDonations(page - 1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => fetchDonations(page + 1)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 export function SettingsPage() {
@@ -511,68 +645,86 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <main className="mx-auto grid max-w-[1400px] gap-6 px-4 py-8 xl:grid-cols-[320px_1fr]">
-        <Card className="border-border bg-card/95">
-          <CardHeader>
-            <CardTitle className="text-lg">{t("settings.currentInfoTitle")}</CardTitle>
-            <CardDescription>{t("settings.currentInfoDescription")}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-3">
-              {draftAvatarPreview ? (
-                <img
-                  src={draftAvatarPreview}
-                  alt={user.username}
-                  className="h-14 w-14 rounded-full border border-border object-cover"
-                />
-              ) : (
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/15 text-lg font-bold text-primary">
-                  {user.username[0]?.toUpperCase()}
+      <main className="mx-auto grid max-w-[1400px] gap-6 px-4 py-8 xl:grid-cols-[280px_1fr]">
+        {/* ── Left Sidebar: Info + Vertical Nav ── */}
+        <div className="space-y-4">
+          <Card className="border-border bg-card/95">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                {draftAvatarPreview ? (
+                  <img
+                    src={draftAvatarPreview}
+                    alt={user.username}
+                    className="h-12 w-12 rounded-full border border-border object-cover"
+                  />
+                ) : (
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/15 text-lg font-bold text-primary">
+                    {user.username[0]?.toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{user.username}</p>
+                  <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                 </div>
-              )}
-
-              <div className="min-w-0">
-                <p className="truncate font-semibold">{user.username}</p>
-                <p className="truncate text-xs text-muted-foreground">{user.email}</p>
               </div>
-            </div>
+            </CardContent>
+          </Card>
 
-            <Separator />
+          <Card className="border-border bg-card/95">
+            <CardContent className="p-2">
+              <nav className="flex flex-col gap-1">
+                {([
+                  { value: "profile" as const, icon: UserRound, label: t("settings.tabs.profile") },
+                  { value: "email" as const, icon: Mail, label: t("settings.tabs.email") },
+                  { value: "password" as const, icon: Lock, label: t("settings.tabs.password") },
+                  { value: "donations" as const, icon: HeartHandshake, label: t("settings.tabs.donations") },
+                ] as const).map(({ value, icon: Icon, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setActiveTab(value)}
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                      activeTab === value
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {label}
+                  </button>
+                ))}
+              </nav>
+            </CardContent>
+          </Card>
 
-            <div className="rounded-lg border border-border bg-background/50 p-3 text-xs text-muted-foreground">
-              <p className="mb-2 font-semibold text-foreground">{t("settings.otpNoteTitle")}</p>
-              <ul className="space-y-1.5">
-                <li>{t("settings.otpNoteDigits")}</li>
-                <li>{t("settings.otpNoteCooldown")}</li>
-                <li>{t("settings.otpNoteRequired")}</li>
-              </ul>
-            </div>
+          <Card className="border-border bg-card/95">
+            <CardContent className="space-y-3 p-4">
+              <div className="rounded-lg border border-border bg-background/50 p-3 text-xs text-muted-foreground">
+                <p className="mb-2 font-semibold text-foreground">{t("settings.otpNoteTitle")}</p>
+                <ul className="space-y-1.5">
+                  <li>{t("settings.otpNoteDigits")}</li>
+                  <li>{t("settings.otpNoteCooldown")}</li>
+                  <li>{t("settings.otpNoteRequired")}</li>
+                </ul>
+              </div>
+              <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+                <p className="font-semibold">{t("settings.mailConfigNote")}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-            <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3 text-xs text-emerald-200">
-              <p className="font-semibold">{t("settings.mailConfigNote")}</p>
-            </div>
-          </CardContent>
-        </Card>
-
+        {/* ── Right Content ── */}
         <Card className="border-border bg-card/95">
           <CardContent className="p-4 sm:p-6">
             <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SettingsTab)}>
-              <TabsList className="grid h-auto w-full grid-cols-3 gap-2 rounded-xl bg-secondary/70 p-1">
-                <TabsTrigger value="profile" className="rounded-lg py-2.5 data-[state=active]:bg-background">
-                  <UserRound className="mr-2 h-4 w-4" />
-                  {t("settings.tabs.profile")}
-                </TabsTrigger>
-                <TabsTrigger value="email" className="rounded-lg py-2.5 data-[state=active]:bg-background">
-                  <Mail className="mr-2 h-4 w-4" />
-                  {t("settings.tabs.email")}
-                </TabsTrigger>
-                <TabsTrigger value="password" className="rounded-lg py-2.5 data-[state=active]:bg-background">
-                  <Lock className="mr-2 h-4 w-4" />
-                  {t("settings.tabs.password")}
-                </TabsTrigger>
+              <TabsList className="hidden">
+                <TabsTrigger value="profile" />
+                <TabsTrigger value="email" />
+                <TabsTrigger value="password" />
+                <TabsTrigger value="donations" />
               </TabsList>
 
-              <TabsContent value="profile" className="mt-6">
+              <TabsContent value="profile" className="mt-0">
                 <div className="rounded-xl border border-border bg-background/40 p-4 sm:p-5">
                   <div className="mb-4">
                     <h2 className="text-lg font-semibold">{t("settings.profile.title")}</h2>
@@ -703,7 +855,7 @@ export function SettingsPage() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="email" className="mt-6 space-y-4">
+              <TabsContent value="email" className="mt-0 space-y-4">
                 <div className="rounded-xl border border-border bg-background/40 p-4 sm:p-5">
                   <h2 className="text-lg font-semibold">{t("settings.email.stepRequest")}</h2>
 
@@ -783,7 +935,7 @@ export function SettingsPage() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="password" className="mt-6 space-y-4">
+              <TabsContent value="password" className="mt-0 space-y-4">
                 <div className="rounded-xl border border-border bg-background/40 p-4 sm:p-5">
                   <h2 className="text-lg font-semibold">{t("settings.password.stepRequest")}</h2>
 
@@ -886,6 +1038,10 @@ export function SettingsPage() {
                     </div>
                   </form>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="donations" className="mt-0">
+                <SentDonationsPanel />
               </TabsContent>
             </Tabs>
 
