@@ -17,7 +17,10 @@ import {
   AlertCircle,
   FileText,
   Trash2,
-  UploadCloud
+  UploadCloud,
+  HeartHandshake,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   hasActiveLiveSession,
@@ -28,6 +31,7 @@ import {
   type RoomDetail,
   type StreamSession,
 } from "@/shared/api/room.service";
+import { donationService, type DonationItem } from "@/shared/api/donation.service";
 import { RTMP_SERVER } from "@/shared/api/apiConfig";
 import { extractApiErrorMessage } from "@/shared/api/httpClient";
 import { statisticsService, type StatsDashboard } from "@/shared/api/statistics.service";
@@ -159,6 +163,141 @@ function hasNearbySessionSplit(sessions: StreamSession[]): boolean {
   }
 
   return false;
+}
+
+const DONATIONS_PAGE_SIZE = 10;
+
+function DonationsTab() {
+  const { t, language } = useI18n();
+  const { formatCurrency } = useI18nFormatters();
+  const [donations, setDonations] = useState<DonationItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+
+  const fetchDonations = useCallback(async (p: number) => {
+    setIsLoading(true);
+    try {
+      const res = await donationService.getReceivedDonations({ page: p, size: DONATIONS_PAGE_SIZE });
+      setDonations(res.data.content);
+      setTotalPages(res.data.totalPages);
+      setTotalElements(res.data.totalElements);
+      setPage(p);
+    } catch {
+      toast.error(t("dashboard.donations.fetchError"));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    fetchDonations(0);
+  }, [fetchDonations]);
+
+  const formatDonationTime = (raw: string) => {
+    const d = parseChatTimestamp(raw);
+    return d.toLocaleString(language === "vi" ? "vi-VN" : language, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <HeartHandshake className="w-5 h-5 text-pink-500" />
+          <h3 className="text-lg font-bold text-white">{t("dashboard.donations.title")}</h3>
+          {totalElements > 0 && (
+            <span className="text-xs text-gray-400 bg-[#2d2d2d] px-2 py-0.5 rounded-full">
+              {totalElements} {t("dashboard.donations.total")}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        </div>
+      ) : donations.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+          <HeartHandshake className="w-10 h-10 mb-3 opacity-30" />
+          <p className="text-sm">{t("dashboard.donations.empty")}</p>
+        </div>
+      ) : (
+        <>
+          <div className="rounded-lg border border-[#3d3d3d] overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-[#2d2d2d] text-gray-400 text-xs uppercase tracking-wider">
+                  <th className="text-left px-4 py-3 font-medium">{t("dashboard.donations.from")}</th>
+                  <th className="text-right px-4 py-3 font-medium">{t("dashboard.donations.amount")}</th>
+                  <th className="text-left px-4 py-3 font-medium">{t("dashboard.donations.message")}</th>
+                  <th className="text-right px-4 py-3 font-medium">{t("dashboard.donations.time")}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#3d3d3d]">
+                {donations.map((d) => (
+                  <tr key={d.id} className="hover:bg-[#2a2a2a] transition-colors">
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-white">{d.donorUsername}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="font-semibold text-pink-400">
+                        {formatCurrency(d.amount, "VND", { maximumFractionDigits: 0 })}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-300 max-w-[260px] truncate">
+                      {d.message || <span className="italic text-gray-500">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-400 text-xs whitespace-nowrap">
+                      {formatDonationTime(d.donatedAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-xs text-gray-400">
+                {t("dashboard.donations.page", { current: page + 1, total: totalPages })}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0 border-[#4d4d4d] bg-transparent text-gray-300 hover:bg-[#2d2d2d]"
+                  disabled={page === 0}
+                  onClick={() => fetchDonations(page - 1)}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0 border-[#4d4d4d] bg-transparent text-gray-300 hover:bg-[#2d2d2d]"
+                  disabled={page >= totalPages - 1}
+                  onClick={() => fetchDonations(page + 1)}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 export function DashboardPage() {
@@ -963,6 +1102,12 @@ export function DashboardPage() {
               >
                 {t("dashboard.tabs.replays")}
               </TabsTrigger>
+              <TabsTrigger 
+                value="donations" 
+                className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-white data-[state=active]:text-white rounded-none pb-3 px-0 text-gray-400 hover:text-gray-200"
+              >
+                {t("dashboard.tabs.donations")}
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="settings" className="pt-6">
@@ -1401,6 +1546,10 @@ export function DashboardPage() {
                      </div>
                   )}
                </div>
+            </TabsContent>
+
+            <TabsContent value="donations" className="pt-6">
+              <DonationsTab />
             </TabsContent>
           </Tabs>
         </div>

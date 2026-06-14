@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bell, BellRing, X } from "lucide-react";
 import { notificationService, type NotificationItem } from "@/shared/api/notification.service";
 import { useAuth } from "@/app/providers/AuthContext";
@@ -13,12 +13,15 @@ import {
 import { useI18n } from "@/shared/i18n";
 import {
   useNotificationPermission,
+  useRealtimeNotifications,
   showBrowserNotification,
   playNotificationSound,
+  type RealtimeNotification,
 } from "@/shared/lib/browserNotification";
+import { subscribeToTopic, ensureStompConnection } from "@/shared/lib/stompClient";
 import { parseChatTimestamp } from "@/shared/lib/formatters";
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 60_000;
 
 export function NotificationBell() {
   const { isAuthenticated, logout } = useAuth();
@@ -37,6 +40,62 @@ export function NotificationBell() {
     dismissPrompt,
   } = useNotificationPermission();
 
+  // STOMP connection when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      ensureStompConnection();
+    }
+  }, [isAuthenticated]);
+
+  const triggerBellEffect = useCallback(() => {
+    setBellAnimating(true);
+    setTimeout(() => setBellAnimating(false), 1500);
+  }, []);
+
+  // STOMP realtime handler — instant notification
+  const handleRealtimeNotification = useCallback(
+    (payload: RealtimeNotification) => {
+      setUnreadCount((prev) => prev + 1);
+      prevUnreadCountRef.current += 1;
+
+      const newItem: NotificationItem = {
+        id: payload.id ?? Date.now(),
+        type: (payload.type as NotificationItem["type"]) ?? "STREAM_LIVE",
+        message: payload.message,
+        isRead: false,
+        createdAt: payload.createdAt ?? new Date().toISOString(),
+      };
+      setNotifications((prev) => [newItem, ...prev].slice(0, 20));
+
+      triggerBellEffect();
+
+      if (permission === "granted") {
+        playNotificationSound();
+
+        if (document.hidden) {
+          showBrowserNotification(payload.title ?? t("notifications.title"), {
+            body: payload.message,
+            tag: `notif-${newItem.id}`,
+            onClick: () => {
+              if (payload.link) {
+                window.location.href = payload.link;
+              }
+            },
+          });
+        }
+      }
+    },
+    [permission, t, triggerBellEffect],
+  );
+
+  // STOMP subscription
+  useRealtimeNotifications(
+    isAuthenticated,
+    subscribeToTopic,
+    handleRealtimeNotification,
+  );
+
+  // Polling fallback — syncs unread count in case STOMP misses anything
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -50,19 +109,14 @@ export function NotificationBell() {
         const newCount = res.data.unreadCount;
         const prevCount = prevUnreadCountRef.current;
 
-        if (newCount > prevCount && prevCount >= 0) {
-          setBellAnimating(true);
-          setTimeout(() => setBellAnimating(false), 1500);
+        if (newCount > prevCount) {
+          triggerBellEffect();
 
-          if (permission === "granted") {
-            playNotificationSound();
-
-            if (document.hidden) {
-              showBrowserNotification(t("notifications.title"), {
-                body: t("notifications.newNotification", { count: newCount - prevCount }),
-                tag: `notif-poll-${Date.now()}`,
-              });
-            }
+          if (permission === "granted" && document.hidden) {
+            showBrowserNotification(t("notifications.title"), {
+              body: t("notifications.newNotification", { count: newCount - prevCount }),
+              tag: `notif-poll-${Date.now()}`,
+            });
           }
         }
 
@@ -82,7 +136,7 @@ export function NotificationBell() {
       isMounted = false;
       clearInterval(intervalId);
     };
-  }, [isAuthenticated, logout, permission, t]);
+  }, [isAuthenticated, logout, permission, t, triggerBellEffect]);
 
   const fetchNotifications = async () => {
     setIsLoading(true);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type PermissionState = "default" | "granted" | "denied" | "unsupported";
 
@@ -103,4 +103,36 @@ export function playNotificationSound(): void {
   } catch {
     // Audio playback failed
   }
+}
+
+export interface RealtimeNotification {
+  id?: number;
+  type?: string;
+  title?: string;
+  message: string;
+  link?: string;
+  isRead?: boolean;
+  createdAt?: string;
+}
+
+export function useRealtimeNotifications(
+  isAuthenticated: boolean,
+  subscribeFn: (destination: string, handler: (frame: { body: string }) => void) => (() => void),
+  onNotification?: (notification: RealtimeNotification) => void,
+) {
+  const onNotificationRef = useRef(onNotification);
+  onNotificationRef.current = onNotification;
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    return subscribeFn("/user/queue/notifications", (frame) => {
+      try {
+        const payload = JSON.parse(frame.body) as RealtimeNotification;
+        onNotificationRef.current?.(payload);
+      } catch {
+        // malformed notification payload
+      }
+    });
+  }, [isAuthenticated, subscribeFn]);
 }
